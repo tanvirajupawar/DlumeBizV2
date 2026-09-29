@@ -139,6 +139,16 @@ customer = await Customer.findOne({
         });
       }
     }
+    await Customer.updateOne(
+  {
+    _id: customer._id,
+    company_id: companyId,
+  },
+  {
+    $inc: { account_version: 1 },
+  },
+  { session }
+);
 
     // --------------------------------
     // 7. BUILD PAYMENT ALLOCATION PLAN

@@ -155,6 +155,12 @@ const customerSchema = new mongoose.Schema(
       min: 0,
     },
 
+    account_version: {
+  type: Number,
+  default: 0,
+  min: 0
+},
+
     // ============================================
     // STATUS
     // ============================================
