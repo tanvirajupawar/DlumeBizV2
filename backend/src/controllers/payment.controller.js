@@ -8,8 +8,8 @@ import mongoose from "mongoose";
 
 export const createPayment = async (req, res) => {
   try {
-    const session = await mongoose.startSession();
-session.startTransaction();
+   const session = await mongoose.startSession();
+let transactionStarted = false;
     const companyId = req.user.company_id;
     const userId = req.user._id;
 
@@ -41,12 +41,15 @@ session.startTransaction();
       });
     }
 
-    if (!["CASH", "CARD", "UPI", "OTHER"].includes(payment_method)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payment method",
-      });
-    }
+  if (!["CASH", "CARD", "UPI", "OTHER"].includes(payment_method)) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid payment method",
+  });
+}
+session.startTransaction();
+transactionStarted = true;
+
 
     // --------------------------------
     // 2. GET COMPANY
@@ -139,16 +142,25 @@ customer = await Customer.findOne({
         });
       }
     }
-    await Customer.updateOne(
+const customerVersion = customer.account_version || 0;
+
+const customerVersionUpdate = await Customer.updateOne(
   {
     _id: customer._id,
     company_id: companyId,
+    account_version: customerVersion,
   },
   {
     $inc: { account_version: 1 },
   },
   { session }
 );
+
+if (customerVersionUpdate.modifiedCount !== 1) {
+  throw new Error(
+    "Customer account was updated by another payment. Please try again."
+  );
+}
 
     // --------------------------------
     // 7. BUILD PAYMENT ALLOCATION PLAN
@@ -444,15 +456,19 @@ await session.endSession();
         ),
       },
     });
-  } catch (error) {
+} catch (error) {
+  if (transactionStarted) {
     await session.abortTransaction();
-await session.endSession();
-    console.error("Create payment error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create payment",
-      error: error.message,
-    });
   }
+
+  await session.endSession();
+
+  console.error("Create payment error:", error);
+
+  return res.status(500).json({
+    success: false,
+    message: "Failed to create payment",
+    error: error.message,
+  });
+}
 };
