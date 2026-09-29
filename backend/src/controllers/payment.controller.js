@@ -4,9 +4,12 @@ import Sale from "../models/sale.model.js";
 import Company from "../models/company.model.js";
 import Customer from "../models/customer.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
+import mongoose from "mongoose";
 
 export const createPayment = async (req, res) => {
   try {
+    const session = await mongoose.startSession();
+session.startTransaction();
     const companyId = req.user.company_id;
     const userId = req.user._id;
 
@@ -49,7 +52,7 @@ export const createPayment = async (req, res) => {
     // 2. GET COMPANY
     // --------------------------------
 
-    const company = await Company.findById(companyId);
+const company = await Company.findById(companyId).session(session);
 
     if (!company) {
       return res.status(404).json({
@@ -62,10 +65,10 @@ export const createPayment = async (req, res) => {
     // 3. FIND CURRENT SALE
     // --------------------------------
 
-    const sale = await Sale.findOne({
-      _id: sale_id,
-      company_id: companyId,
-    });
+const sale = await Sale.findOne({
+  _id: sale_id,
+  company_id: companyId,
+}).session(session);
 
     if (!sale) {
       return res.status(404).json({
@@ -100,10 +103,10 @@ export const createPayment = async (req, res) => {
     // 5. CURRENT SALE BALANCE
     // --------------------------------
 
-    const currentAllocations = await PaymentAllocation.find({
-      company_id: companyId,
-      sale_id: sale._id,
-    }).lean();
+const currentAllocations = await PaymentAllocation.find({
+  company_id: companyId,
+  sale_id: sale._id,
+}).session(session).lean();
 
     const currentAlreadyPaid = currentAllocations.reduce(
       (total, allocation) =>
@@ -123,11 +126,11 @@ export const createPayment = async (req, res) => {
     let customer = null;
 
     if (sale.customer_id) {
-      customer = await Customer.findOne({
-        _id: sale.customer_id,
-        company_id: companyId,
-        is_active: true,
-      });
+customer = await Customer.findOne({
+  _id: sale.customer_id,
+  company_id: companyId,
+  is_active: true,
+}).session(session);
 
       if (!customer) {
         return res.status(404).json({
@@ -173,22 +176,22 @@ export const createPayment = async (req, res) => {
       customer &&
       company.payment_mode === "CREDIT"
     ) {
-      const previousSales = await Sale.find({
-        company_id: companyId,
-        customer_id: customer._id,
-        _id: { $ne: sale._id },
-      })
-        .sort({ invoice_date: 1, createdAt: 1 })
-        .lean();
+const previousSales = await Sale.find({
+  company_id: companyId,
+  customer_id: customer._id,
+  _id: { $ne: sale._id },
+})
+  .session(session)
+  .sort({ invoice_date: 1, createdAt: 1 })
+  .lean();
 
       for (const previousSale of previousSales) {
         if (remainingPayment <= 0) break;
-
-        const previousAllocations =
-          await PaymentAllocation.find({
-            company_id: companyId,
-            sale_id: previousSale._id,
-          }).lean();
+const previousAllocations =
+  await PaymentAllocation.find({
+    company_id: companyId,
+    sale_id: previousSale._id,
+  }).session(session).lean();
 
         const previousPaid = previousAllocations.reduce(
           (total, allocation) =>
@@ -234,13 +237,13 @@ if (
   );
 
   // Get previous payments made against opening balance
-  const openingBalancePayments = await CustomerLedger.find({
-    company_id: companyId,
-    customer_id: customer._id,
-    type: "PAYMENT",
-    sale_id: null,
-    description: "Payment against opening balance",
-  }).lean();
+const openingBalancePayments = await CustomerLedger.find({
+  company_id: companyId,
+  customer_id: customer._id,
+  type: "PAYMENT",
+  sale_id: null,
+  description: "Payment against opening balance",
+}).session(session).lean();
 
   const openingBalancePaid = openingBalancePayments.reduce(
     (total, entry) =>
@@ -277,16 +280,18 @@ if (
     // 9. CREATE PAYMENT
     // --------------------------------
 
-    const payment = await Payment.create({
-      company_id: companyId,
-      customer_id: sale.customer_id,
-      amount: paymentAmount,
-      payment_method,
-      reference_no: String(reference_no || "").trim(),
-      remarks: String(remarks || "").trim(),
-      received_by: userId,
-    });
-
+const [payment] = await Payment.create(
+  [{
+    company_id: companyId,
+    customer_id: sale.customer_id,
+    amount: paymentAmount,
+    payment_method,
+    reference_no: String(reference_no || "").trim(),
+    remarks: String(remarks || "").trim(),
+    received_by: userId,
+  }],
+  { session }
+);
     // --------------------------------
     // 10. CREATE SALE ALLOCATIONS
     // --------------------------------
@@ -294,13 +299,15 @@ if (
     const createdAllocations = [];
 
     for (const allocation of allocationPlan) {
-      const createdAllocation =
-        await PaymentAllocation.create({
-          company_id: companyId,
-          payment_id: payment._id,
-          sale_id: allocation.sale_id,
-          amount: allocation.amount,
-        });
+const [createdAllocation] = await PaymentAllocation.create(
+  [{
+    company_id: companyId,
+    payment_id: payment._id,
+    sale_id: allocation.sale_id,
+    amount: allocation.amount,
+  }],
+  { session }
+);
 
       createdAllocations.push(createdAllocation);
     }
@@ -312,22 +319,26 @@ if (
 if (customer && company.payment_mode === "CREDIT") {
   // Payment applied to invoices
   for (const allocation of allocationPlan) {
-    await CustomerLedger.create({
-      company_id: companyId,
-      customer_id: customer._id,
-      type: "PAYMENT",
-      sale_id: allocation.sale_id,
-      payment_id: payment._id,
-      debit: 0,
-      credit: allocation.amount,
-      description: `Payment against invoice`,
-      transaction_date: payment.payment_date,
-    });
+  await CustomerLedger.create(
+  [{
+    company_id: companyId,
+    customer_id: customer._id,
+    type: "PAYMENT",
+    sale_id: allocation.sale_id,
+    payment_id: payment._id,
+    debit: 0,
+    credit: allocation.amount,
+    description: "Payment against invoice",
+    transaction_date: payment.payment_date,
+  }],
+  { session }
+);
   }
 
   // Payment applied to original opening balance
-  if (openingBalancePayment > 0) {
-    await CustomerLedger.create({
+if (openingBalancePayment > 0) {
+  await CustomerLedger.create(
+    [{
       company_id: companyId,
       customer_id: customer._id,
       type: "PAYMENT",
@@ -337,8 +348,11 @@ if (customer && company.payment_mode === "CREDIT") {
       credit: openingBalancePayment,
       description: "Payment against opening balance",
       transaction_date: payment.payment_date,
-    });
-  }
+    }],
+    { session }
+  );
+}
+  
 }
 
     // --------------------------------
@@ -375,7 +389,10 @@ if (customer && company.payment_mode === "CREDIT") {
     // 13. RESPONSE
     // --------------------------------
 
+await session.commitTransaction();
+await session.endSession();
     return res.status(201).json({
+      
       success: true,
       message: "Payment recorded successfully",
       data: {
@@ -418,6 +435,8 @@ if (customer && company.payment_mode === "CREDIT") {
       },
     });
   } catch (error) {
+    await session.abortTransaction();
+await session.endSession();
     console.error("Create payment error:", error);
 
     return res.status(500).json({
