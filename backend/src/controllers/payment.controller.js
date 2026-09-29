@@ -13,24 +13,24 @@ let transactionStarted = false;
     const companyId = req.user.company_id;
     const userId = req.user._id;
 
-    const {
-      sale_id,
-      amount,
-      payment_method,
-      reference_no = "",
-      remarks = "",
-    } = req.body;
+  const {
+  sale_id,
+  customer_id,
+  amount,
+  payment_method,
+  reference_no = "",
+  remarks = "",
+} = req.body;
 
     // --------------------------------
     // 1. BASIC VALIDATION
     // --------------------------------
-
-    if (!sale_id) {
-      return res.status(400).json({
-        success: false,
-        message: "sale_id is required",
-      });
-    }
+if (!sale_id && !customer_id) {
+  return res.status(400).json({
+    success: false,
+    message: "sale_id or customer_id is required",
+  });
+}
 
     const paymentAmount = Number(amount);
 
@@ -63,6 +63,161 @@ const company = await Company.findById(companyId).session(session);
         message: "Company not found",
       });
     }
+
+
+    // --------------------------------
+// OPENING BALANCE ONLY PAYMENT
+// --------------------------------
+
+if (!sale_id && customer_id) {
+  const customer = await Customer.findOne({
+    _id: customer_id,
+    company_id: companyId,
+    is_active: true,
+  }).session(session);
+
+  if (!customer) {
+    return res.status(404).json({
+      success: false,
+      message: "Customer not found",
+    });
+  }
+
+  // Original opening balance
+  const originalOpeningBalance = Number(
+    customer.opening_balance || 0
+  );
+
+  // Payments already made against opening balance
+  const openingBalancePayments = await CustomerLedger.find({
+    company_id: companyId,
+    customer_id: customer._id,
+    type: "PAYMENT",
+    sale_id: null,
+    description: "Payment against opening balance",
+  })
+    .session(session)
+    .lean();
+
+  const openingBalancePaid =
+    openingBalancePayments.reduce(
+      (total, entry) =>
+        total + Number(entry.credit || 0),
+      0
+    );
+
+  const remainingOpeningBalance = Math.max(
+    0,
+    originalOpeningBalance - openingBalancePaid
+  );
+
+  // Cannot pay more than opening balance
+  if (paymentAmount > remainingOpeningBalance) {
+    return res.status(400).json({
+      success: false,
+      message: `Payment cannot exceed opening balance outstanding of ${remainingOpeningBalance.toFixed(
+        2
+      )}`,
+    });
+  }
+
+  // Update customer account version
+  const customerVersion =
+    customer.account_version || 0;
+
+  const customerVersionUpdate =
+    await Customer.updateOne(
+      {
+        _id: customer._id,
+        company_id: companyId,
+        account_version: customerVersion,
+      },
+      {
+        $inc: {
+          account_version: 1,
+        },
+      },
+      {
+        session,
+      }
+    );
+
+  if (customerVersionUpdate.modifiedCount !== 1) {
+    throw new Error(
+      "Customer account was updated by another payment. Please try again."
+    );
+  }
+
+  // --------------------------------
+  // CREATE PAYMENT
+  // --------------------------------
+
+  const [payment] = await Payment.create(
+    [
+      {
+        company_id: companyId,
+        customer_id: customer._id,
+        amount: paymentAmount,
+        payment_method,
+        reference_no: String(reference_no || "").trim(),
+        remarks: String(remarks || "").trim(),
+        received_by: userId,
+      },
+    ],
+    { session }
+  );
+
+  // --------------------------------
+  // CREATE OPENING BALANCE LEDGER
+  // --------------------------------
+
+  await CustomerLedger.create(
+    [
+      {
+        company_id: companyId,
+        customer_id: customer._id,
+        type: "PAYMENT",
+        sale_id: null,
+        payment_id: payment._id,
+        debit: 0,
+        credit: paymentAmount,
+        description: "Payment against opening balance",
+        transaction_date: payment.payment_date,
+      },
+    ],
+    { session }
+  );
+
+  const newOpeningBalance =
+    Math.max(
+      0,
+      remainingOpeningBalance - paymentAmount
+    );
+
+  await session.commitTransaction();
+  await session.endSession();
+
+  return res.status(201).json({
+    success: true,
+    message: "Opening balance payment recorded successfully",
+
+    data: {
+      payment_id: payment._id,
+      customer_id: customer._id,
+
+      payment_amount: paymentAmount,
+
+      opening_balance_paid: paymentAmount,
+
+      remaining_opening_balance: newOpeningBalance,
+
+      status:
+        newOpeningBalance === 0
+          ? "PAID"
+          : "PARTIAL",
+    },
+  });
+}
 
     // --------------------------------
     // 3. FIND CURRENT SALE
@@ -471,4 +626,152 @@ await session.endSession();
     error: error.message,
   });
 }
+};
+
+// ================= GET PAYMENTS =================
+
+// ================= GET PAYMENTS =================
+
+export const getPayments = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { customer_id } = req.query;
+
+    console.log("🔥 GET PAYMENTS HIT");
+    console.log("🔥 COMPANY:", companyId);
+    console.log("🔥 CUSTOMER FILTER:", customer_id || "ALL");
+
+    // --------------------------------
+    // PAYMENT FILTER
+    // --------------------------------
+
+    const paymentFilter = {
+      company_id: companyId,
+    };
+
+    if (customer_id) {
+      paymentFilter.customer_id = customer_id;
+    }
+
+    // --------------------------------
+    // GET PAYMENTS
+    // --------------------------------
+
+    const payments = await Payment.find(paymentFilter)
+      .sort({
+        payment_date: -1,
+        createdAt: -1,
+      })
+      .lean();
+
+    console.log("🔥 PAYMENTS FOUND:", payments.length);
+
+    // --------------------------------
+    // PAYMENT IDS
+    // --------------------------------
+
+    const paymentIds = payments.map(
+      (payment) => payment._id
+    );
+
+    // --------------------------------
+    // GET ALLOCATIONS
+    // --------------------------------
+
+    const allocations = paymentIds.length
+      ? await PaymentAllocation.find({
+          company_id: companyId,
+          payment_id: { $in: paymentIds },
+        }).lean()
+      : [];
+
+    // --------------------------------
+    // GET SALES
+    // --------------------------------
+
+    const saleIds = allocations
+      .map((allocation) => allocation.sale_id)
+      .filter(Boolean);
+
+    const sales = saleIds.length
+      ? await Sale.find({
+          company_id: companyId,
+          _id: { $in: saleIds },
+        })
+          .select("_id invoice_no")
+          .lean()
+      : [];
+
+    // --------------------------------
+    // SALE MAP
+    // --------------------------------
+
+    const saleMap = new Map(
+      sales.map((sale) => [
+        String(sale._id),
+        sale,
+      ])
+    );
+
+    // --------------------------------
+    // GROUP ALLOCATIONS BY PAYMENT
+    // --------------------------------
+
+    const allocationMap = new Map();
+
+    for (const allocation of allocations) {
+      const paymentId = String(allocation.payment_id);
+      const sale = saleMap.get(
+        String(allocation.sale_id)
+      );
+
+      if (!allocationMap.has(paymentId)) {
+        allocationMap.set(paymentId, []);
+      }
+
+      allocationMap.get(paymentId).push({
+        allocation_id: allocation._id,
+        sale_id: allocation.sale_id,
+        invoice_no: sale?.invoice_no || "-",
+        amount: Number(allocation.amount || 0),
+      });
+    }
+
+    // --------------------------------
+    // FINAL RESULT
+    // --------------------------------
+
+    const result = payments.map((payment) => {
+      const paymentAllocations =
+        allocationMap.get(String(payment._id)) || [];
+
+      return {
+        ...payment,
+
+        allocations: paymentAllocations,
+
+        invoice_ids: paymentAllocations.map(
+          (allocation) =>
+            String(allocation.sale_id)
+        ),
+
+        invoice_no:
+          paymentAllocations[0]?.invoice_no || "-",
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+
+  } catch (error) {
+    console.error("❌ Get payments error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payments",
+      error: error.message,
+    });
+  }
 };

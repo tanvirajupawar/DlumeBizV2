@@ -73,6 +73,11 @@ const navItems = isCalculatorMode
         icon: "calculator-variant-outline",
       },
       {
+        key: "customers",
+        label: "Customers",
+        icon: "account-group-outline",
+      },
+      {
         key: "orders",
         label: "Orders",
         icon: "clipboard-text-outline",
@@ -84,13 +89,18 @@ const navItems = isCalculatorMode
       },
     ]
   : [
-      {
-        key: "cart",
-        label: "Cart",
-        icon: "cart-outline",
-      },
-      {
-        key: "categories",
+   {
+  key: "cart",
+  label: "Cart",
+  icon: "cart-outline",
+},
+{
+  key: "customers",
+  label: "Customers",
+  icon: "account-group-outline",
+},
+{
+  key: "categories",
         label: "Items",
         icon: "shape-outline",
       },

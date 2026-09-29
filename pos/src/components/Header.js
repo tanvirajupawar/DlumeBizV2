@@ -31,7 +31,9 @@ export default function Header({
   hideAdd = true,
   addLabel,
   onMenuPress,
+  onBackPress,
   onSearchPress,
+    leftContent,
   onScanPress,
   onCustomerPress,
   customerSelected = false,
@@ -66,18 +68,44 @@ const closeSearch = () => {
     <View style={styles.container} testID="pos-header">
         {/* LEFT — products side */}
       <View style={[styles.left, leftWidth ? { flex: 0, width: leftWidth } : null]}>
-               <Pressable
-            onPress={onMenuPress}
+      
+
+        <Pressable
+  onPress={onMenuPress}
+  hitSlop={8}
+  style={styles.iconBtn}
+  testID="header-menu-button"
+  focusable={false}
+  android_disableSound={true}
+>
+  <Ionicons
+    name="menu"
+    size={30}
+    color={COLORS.textOnDark}
+  />
+</Pressable>
+
+    {/* ▼ ADD THIS ▼ */}
+        {onBackPress && (
+          <Pressable
+            onPress={onBackPress}
             hitSlop={8}
             style={styles.iconBtn}
-            testID="header-menu-button"
-            focusable={false}
-            android_disableSound={true}
+            testID="header-back-button"
           >
-            <Ionicons name="menu" size={30} color={COLORS.textOnDark} />
+            <Ionicons name="arrow-back" size={28} color={COLORS.textOnDark} />
           </Pressable>
+        )}
+        {/* ▲ ADD THIS ▲ */}
+{leftContent ? (
+  <View style={styles.leftContent}>
+    {leftContent}
+  </View>
+) : title === "Customers" ? (
+  <Text style={styles.leftTitle}>Customers</Text>
+) : null}
 
-          <View style={styles.leftTools}>
+<View style={styles.leftTools}>
          {!hideSearch && (
   searchActive ? (
     <View style={styles.searchFieldWrap}>
@@ -141,10 +169,12 @@ const closeSearch = () => {
 
         {/* RIGHT — cart side */}
         <View style={styles.right}>
-          <View style={styles.titleRow}>
-            {children}
-            <Text style={styles.cartTitle}>{title}</Text>
-          </View>
+      <View style={styles.titleRow}>
+  {children}
+  {title !== "Customers" && (
+    <Text style={styles.cartTitle}>{title}</Text>
+  )}
+</View>
           <View style={styles.rightTools}>
             {rightExtra}
 
@@ -363,5 +393,16 @@ addBtnText: {
   color: COLORS.textOnDark,
   fontSize: 17,
   fontWeight: "700",
+},
+leftTitle: {
+  color: COLORS.textOnDark,
+  fontSize: 22,
+  fontWeight: "600",
+  marginLeft: SPACING.sm,
+},
+leftContent: {
+  flex: 1,
+  minWidth: 0,
+  marginLeft: SPACING.sm,
 },
   });

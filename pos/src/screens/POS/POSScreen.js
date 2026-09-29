@@ -4,8 +4,17 @@ import {
   NativeModules,
   NativeEventEmitter,
 } from "react-native";
-import { View, StyleSheet, StatusBar, TouchableOpacity, Text, Modal
- } from "react-native";
+import {
+  View,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  Text,
+  Modal,
+  TextInput,
+  Pressable,
+  Alert,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -24,10 +33,18 @@ import MoreOptionsSheet from "../../components/MoreOptionsSheet";
 import { WALK_IN_CUSTOMER } from "../../components/CustomerSelector";
 import CustomerSearchScreen from "../Customer/CustomerSearchScreen";
 import CustomerFormScreen from "../Customer/CustomerFormScreen";
+import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
+import { createPayment } from "../../api/payment";
+
 import { useEffect } from "react";
 import { fetchProducts } from "../../api/product";
-import { fetchCustomers, createCustomer } from "../../api/customer";
+import {
+  fetchCustomers,
+  createCustomer,
+  fetchCustomerInvoices,
+} from "../../api/customer";
+
 
 import ProductCatalogScreen from "../ProductCatalog/ProductCatalogScreen";
 import ProductFormScreen from "../ProductCatalog/ProductFormScreen";
@@ -35,7 +52,9 @@ import ManageCartItemModal from "../../components/ManageCartItemModal";
 import RefundsScreen from "../Refunds/RefundsScreen";
 import OrdersScreen from "../Orders/OrdersScreen";
 import PaymentsScreen from "../Payment/PaymentsScreen";
-import { fetchCategories } from "../../api/category";
+import CustomerListScreen from "../Customer/CustomerListScreen";
+import CustomerAccountScreen from "../Customer/CustomerAccountScreen";
+   import { fetchCategories } from "../../api/category";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import CategoryModal from "../../components/CategoryModal";
 import CalculatorPane from "../../components/CalculatorPane";
@@ -67,6 +86,11 @@ const ALL_ITEMS_CATEGORY = { _id: "all", category: "All Items" };
 
 export default function POSScreen() {
   const [activeNav, setActiveNav] = useState("cart");
+  const [selectedCustomerAccount, setSelectedCustomerAccount] = useState(null);
+  const [paymentCustomer, setPaymentCustomer] = useState(null);
+
+const [paymentLoading, setPaymentLoading] = useState(false);
+const [paymentFetching, setPaymentFetching] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [cartItems, setCartItems] = useState([]);
@@ -100,13 +124,15 @@ export default function POSScreen() {
   const [editingCategory, setEditingCategory] = useState(null);
   const [categoryLoading, setCategoryLoading] = useState(false);
 
-  // ── Customer search / add ────────────────────────────────────────────────
 // ── Customer search / add ────────────────────────────────────────────────
-  const [customerModalVisible, setCustomerModalVisible] = useState(false);
-  const [customerModalMode, setCustomerModalMode] = useState("search"); // "search" | "form"
-  const [customerSearchText, setCustomerSearchText] = useState("");
-  const [customerFormValues, setCustomerFormValues] = useState({});
-  const [savingCustomer, setSavingCustomer] = useState(false);
+const [customerModalVisible, setCustomerModalVisible] = useState(false);
+const [customerModalMode, setCustomerModalMode] = useState("search");
+const [customerSearchText, setCustomerSearchText] = useState("");
+const [customerFormValues, setCustomerFormValues] = useState({});
+const [savingCustomer, setSavingCustomer] = useState(false);
+const [customerFormFromList, setCustomerFormFromList] = useState(false);
+
+const [paymentSaleId, setPaymentSaleId] = useState(null);
 
 const filteredCustomerResults = useMemo(() => {
   const q = customerSearchText.trim().toLowerCase();
@@ -150,14 +176,22 @@ const handleSelectCustomerFromSearch = (customer) => {
 };
 
 
-const handleOpenCustomerForm = () => {
+const handleOpenCustomerForm = (fromList = false) => {
   setCustomerFormValues({});
+  setCustomerFormFromList(fromList);
   setCustomerModalMode("form");
+  setCustomerModalVisible(true);
 };
-
 // "Back" from the form now returns to search, rather than closing everything.
-const handleCloseCustomerForm = () => setCustomerModalMode("search");
+const handleCloseCustomerForm = () => {
+  if (customerFormFromList) {
+    setCustomerModalVisible(false);
+    setCustomerFormFromList(false);
+    return;
+  }
 
+  setCustomerModalMode("search");
+};
 const handleChangeCustomerForm = (field, text) =>
   setCustomerFormValues((prev) => ({ ...prev, [field]: text }));
 
@@ -174,11 +208,13 @@ const last_name = nameParts.slice(1).join(" ");
 const payload = {
   first_name,
   last_name,
+  company_name: customerFormValues.company_name || "",
   contact_no_1: customerFormValues.mobile || "",
   email: customerFormValues.email || "",
   address_line_1: customerFormValues.address1 || "",
   address_line_2: customerFormValues.address2 || "",
   state: customerFormValues.state || "",
+  opening_balance: Number(customerFormValues.opening_balance || 0),
 };
 const created = await createCustomer(payload);
 
@@ -378,12 +414,14 @@ const { logout, user } = useAuth();
 
 const loadCustomers = async ({ silent = false } = {}) => {
   try {
-    const data = await fetchCustomers();
+ const data = await fetchCustomers();
 
-    console.log("🔥 CUSTOMERS API RESPONSE:", data);
-    console.log("🔥 CUSTOMER COUNT:", data?.length);
+console.log(
+  "🔥 CUSTOMERS FROM BACKEND:",
+  JSON.stringify(data, null, 2)
+);
 
-    setCustomers(data);
+setCustomers(data);
     setCached(CACHE_KEYS.customers, data);
   } catch (err) {
     console.log(
@@ -393,15 +431,152 @@ const loadCustomers = async ({ silent = false } = {}) => {
   }
 };
 
-  // Runs every time this screen regains focus (mount, or navigating back
-  // from Checkout/another screen). For each of products/customers/
-  // categories: if the in-memory cache already has data (true after the
-  // very first successful fetch this session — setCached above writes
-  // straight into that same memory layer), skip straight to a SILENT
-  // background refresh so the catalog stays on screen with no flash.
-  // Only on a genuinely cold start does this fall back to the async,
-  // disk-backed getCached() before deciding whether the first real fetch
-  // should be silent or show a loading state.
+
+const handleCustomerPay = async (customer) => {
+  try {
+    const customerId = customer?._id || customer?.id;
+
+    if (!customerId) {
+      Alert.alert("Error", "Customer ID not found.");
+      return;
+    }
+
+    setPaymentFetching(true);
+
+    console.log("========== CUSTOMER PAYMENT ==========");
+    console.log("CUSTOMER:", customer);
+    console.log("CUSTOMER ID:", customerId);
+
+    // Clear previous selected invoice
+    setPaymentSaleId(null);
+
+    const response = await fetchCustomerInvoices(customerId);
+
+    console.log("📦 RAW CUSTOMER INVOICES RESPONSE:", response);
+
+    const sales =
+      response?.data?.data ||
+      response?.data ||
+      [];
+
+    console.log("📄 CUSTOMER SALES:", sales);
+
+    // Find unpaid invoices only
+    const unpaidSales = sales
+      .map((sale) => {
+        const total = Number(sale.total_amount || 0);
+
+        const paid = Number(
+          sale.paid_amount ||
+          0
+        );
+
+        const remaining = Number(
+          sale.remaining_amount ??
+          Math.max(0, total - paid)
+        );
+
+        console.log("INVOICE:", {
+          id: sale._id,
+          invoice_no: sale.invoice_no,
+          total,
+          paid,
+          remaining,
+          status: sale.status,
+        });
+
+        return {
+          ...sale,
+          remaining_amount: remaining,
+        };
+      })
+      .filter(
+        (sale) =>
+          Number(sale.remaining_amount || 0) > 0
+      );
+
+    console.log("💰 UNPAID SALES:", unpaidSales);
+
+    // Newest unpaid invoice first
+    unpaidSales.sort(
+      (a, b) =>
+        new Date(
+          b.invoice_date ||
+          b.createdAt ||
+          0
+        ) -
+        new Date(
+          a.invoice_date ||
+          a.createdAt ||
+          0
+        )
+    );
+
+    // If there is an unpaid invoice,
+    // payment will start from that invoice.
+    if (unpaidSales.length > 0) {
+      const newestUnpaidSale = unpaidSales[0];
+
+      console.log(
+        "✅ PAYMENT WILL START FROM INVOICE:",
+        newestUnpaidSale.invoice_no,
+        newestUnpaidSale._id
+      );
+
+      setPaymentSaleId(newestUnpaidSale._id);
+    } else {
+      // No unpaid invoices.
+      // Payment will go against opening balance.
+      console.log(
+        "ℹ️ NO UNPAID INVOICE"
+      );
+
+      console.log(
+        "💰 OPENING BALANCE:",
+        customer.opening_balance
+      );
+
+      console.log(
+        "💰 OPENING BALANCE PAID:",
+        customer.opening_balance_paid
+      );
+
+      console.log(
+        "💰 REMAINING OPENING BALANCE:",
+        customer.remaining_opening_balance
+      );
+
+      setPaymentSaleId(null);
+    }
+
+    // Open payment modal
+    setPaymentCustomer(customer);
+
+  } catch (error) {
+    console.log(
+      "❌ CUSTOMER PAYMENT LOAD ERROR:",
+      error?.response?.data ||
+      error?.message ||
+      error
+    );
+
+    Alert.alert(
+      "Error",
+      error?.response?.data?.message ||
+        "Unable to load customer outstanding."
+    );
+
+    setPaymentCustomer(null);
+    setPaymentSaleId(null);
+
+  } finally {
+    setPaymentFetching(false);
+  }
+};
+
+
+
+
   useFocusEffect(
     React.useCallback(() => {
       (async () => {
@@ -681,6 +856,84 @@ useEffect(() => {
   };
 }, [products]);
 
+
+
+
+
+const handlePaymentSubmit = async ({ amount, method }) => {
+  if (!paymentCustomer) return;
+
+  try {
+    setPaymentLoading(true);
+
+    const payload = {
+      amount: Number(amount),
+      payment_method: method,
+      reference_no: "",
+      remarks: "Customer account payment",
+    };
+
+    if (paymentSaleId) {
+      payload.sale_id = paymentSaleId;
+    } else {
+      payload.customer_id =
+        paymentCustomer?._id ||
+        paymentCustomer?.id;
+    }
+
+    console.log(
+      "💰 CUSTOMER PAYMENT PAYLOAD:",
+      payload
+    );
+
+    const response = await createPayment(payload);
+
+    console.log(
+      "✅ CUSTOMER PAYMENT SUCCESS:",
+      response
+    );
+
+    Alert.alert(
+      "Payment Received",
+      `₹${Number(amount).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })} received successfully.`
+    );
+
+    setPaymentCustomer(null);
+    setPaymentSaleId(null);
+
+    await loadCustomers({ silent: true });
+
+  } catch (error) {
+    console.log(
+      "❌ CUSTOMER PAYMENT ERROR:",
+      error?.response?.data ||
+      error?.message ||
+      error
+    );
+
+    Alert.alert(
+      "Payment Failed",
+      error?.response?.data?.message ||
+        "Unable to receive payment."
+    );
+
+  } finally {
+    setPaymentLoading(false);
+  }
+};
+
+
+
+
+
+
+
+
+
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.bg} />
@@ -705,17 +958,30 @@ useEffect(() => {
  activeNav !== "categories" &&
  activeNav !== "inventory" &&
  activeNav !== "payments" &&
- activeNav !== "productForm" && (
- <Header
+ activeNav !== "productForm" && 
+ !(activeNav === "customers" && selectedCustomerAccount) && (
+
   
-  hideSearch={isCalculatorMode}
-  hideScanner={isCalculatorMode}
+<Header
+  title={activeNav === "customers" ? "Customers" : "Cart"}
+  hideSearch={isCalculatorMode || activeNav === "customers"}
+  hideScanner={isCalculatorMode || activeNav === "customers"}
+  hideCustomer={activeNav === "customers"}
+  hideMore={activeNav === "customers"}
+  hideAdd={activeNav !== "customers"}
+  addLabel={activeNav === "customers" ? "Add Customer" : undefined}
+onAddPress={
+  activeNav === "customers"
+    ? () => handleOpenCustomerForm(true)
+    : undefined
+}
   screenName={activeNav}
   screenTitle=""
   onBack={handleCloseProductForm}
   sidebarCollapsed={sidebarCollapsed}
-      onMenuPress={(e) => {
-        setSidebarCollapsed(false);
+  onMenuPress={(e) => {
+    setSidebarCollapsed(false);
+  
       }}
       searchInputRef={searchInputRef}
       searchValue={searchText}
@@ -858,6 +1124,26 @@ useEffect(() => {
                 />
               </View>
             )}
+{activeNav === "customers" && (
+  <View style={styles.fullContent}>
+    {selectedCustomerAccount ? (
+   <CustomerAccountScreen
+  customer={selectedCustomerAccount}
+  onBack={() => setSelectedCustomerAccount(null)}
+  onMenuPress={() => setSidebarCollapsed(false)}
+/>
+    ) : (
+<CustomerListScreen
+  customers={customers}
+  onCustomerPress={(customer) => {
+    setSelectedCustomerAccount(customer);
+  }}
+  onPayPress={handleCustomerPay}
+/>
+    )}
+  </View>
+)}
+
 {activeNav === "orders" && (
   <View style={styles.fullContent}>
     <OrdersScreen
@@ -950,7 +1236,7 @@ useEffect(() => {
             onSearchChange={setCustomerSearchText}
             onClose={handleCloseCustomerSearch}
             onSelectCustomer={handleSelectCustomerFromSearch}
-            onAddNew={handleOpenCustomerForm}
+           onAddNew={() => handleOpenCustomerForm(false)}
           />
         ) : (
           <CustomerFormScreen
@@ -975,6 +1261,22 @@ useEffect(() => {
     onClose={() => setProfileVisible(false)}
   />
 </Modal>
+
+<CustomerPaymentModal
+  visible={!!paymentCustomer}
+  customer={paymentCustomer}
+  fetching={paymentFetching}
+  loading={paymentLoading}
+  onClose={() => {
+    if (!paymentLoading) {
+      setPaymentCustomer(null);
+      setPaymentSaleId(null);
+    }
+  }}
+  onSubmit={handlePaymentSubmit}
+/>
+
+
     </SafeAreaView>
     
   );
@@ -1024,4 +1326,5 @@ contentWrapper: {
     flex: 4,
   },
   fullContent: { flex: 1 },
+ 
 });

@@ -74,39 +74,48 @@ const [processingMethod, setProcessingMethod] = useState(null);
 
 
 const handleSelectPayment = async (paymentId) => {
-
   if (processingMethod) return;
 
   setProcessingMethod(paymentId);
-let payment = null;
 
+  let payment = null;
   let sale;
 
   try {
-const payload = {
-  customer_id: customer?._id || null,
+    const customerId = customer?._id || customer?.id || null;
 
-  source: "POS",
-  sale_mode: "CALCULATOR",
+    console.log("========== CHECKOUT CUSTOMER ==========");
+    console.log("CUSTOMER:", customer);
+    console.log("CUSTOMER ID:", customerId);
+    console.log("=======================================");
 
-  subtotal: Number(subtotal) || 0,
-  discount_amount: discountValue,
-  total_amount: payableTotal,
+    const payload = {
+      customer_id: customerId,
 
-  items: cartItems.map((item) => ({
-    product_id: null,
-    product_name: item.product || item.name || "",
-    description: item.description || "",
-    qty: Number(item.qty) || 0,
-    rate: Number(item.price) || 0,
-    amount: (Number(item.qty) || 0) * (Number(item.price) || 0),
-    unit: item.unit || "PCS",
-    hsn: "",
-    gst_rate: 0,
-  })),
-};
-const response = await createSale(payload);
-sale = response.data || response;
+      source: "POS",
+      sale_mode: "CALCULATOR",
+
+      subtotal: Number(subtotal) || 0,
+      discount_amount: discountValue,
+      total_amount: payableTotal,
+
+      items: cartItems.map((item) => ({
+        product_id: null,
+        product_name: item.product || item.name || "",
+        description: item.description || "",
+        qty: Number(item.qty) || 0,
+        rate: Number(item.price) || 0,
+        amount:
+          (Number(item.qty) || 0) *
+          (Number(item.price) || 0),
+        unit: item.unit || "PCS",
+        hsn: "",
+        gst_rate: 0,
+      })),
+    };
+
+    const response = await createSale(payload);
+    sale = response.data || response;
 
 const paymentPayload = {
  sale_id: sale.sale_id,
@@ -123,13 +132,7 @@ const paymentResponse = await createPayment(paymentPayload);
 
 console.log("🔥 V2 PAYMENT RESPONSE:", paymentResponse);
 
-navigation.replace("POSPaymentSuccess", {
-  saleId: sale.sale_id,
-  saleCompleted: sale,
-  receipt,
-  amount: payableTotal,
-  paymentMethod: paymentId,
-});
+
 
   } catch (err) {
       console.log(

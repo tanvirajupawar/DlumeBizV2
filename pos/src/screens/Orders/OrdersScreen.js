@@ -126,8 +126,11 @@ const dateGroupFor = (isoDate) => {
 };
 
 const mapInvoice = (inv, returnsBySalesId) => {
-  const customer = inv.client_id || {};
-  const invId = inv._id;
+const customer =
+  inv.customer_id ||
+  inv.client_id ||
+  {};
+    const invId = inv._id;
 
   const totalReturn = returnsBySalesId[invId] || 0;
   const totalAmount = Number(inv.total_amount || 0);
@@ -155,7 +158,7 @@ const mapInvoice = (inv, returnsBySalesId) => {
 
   const companyName = customer.company_name || "Walk-in";
 
-  const items = (inv.details || []).map((d) => {
+const items = (inv.items || []).map((d) => {
     const prod = d.product_id || {};
     const rate = Number(d.price || d.rate || 0);
     const bags = Number(d.bags || 0);
@@ -228,8 +231,13 @@ description:
   return {
     id: invId,
     invoiceNo: inv.invoice_no || "—",
-    customer_id: customer._id || inv.client_id || "",
-    customer: customerName,
+customer_id:
+  customer._id ||
+  inv.customer_id?._id ||
+  inv.customer_id ||
+  inv.client_id ||
+  "",
+      customer: customerName,
     companyName,
     total: grandTotal,
     status,
@@ -1509,12 +1517,10 @@ const searchInputRef = useRef(null);
     try {
       const token = await getToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const [salesRes, returnsRes] = await Promise.all([
-        API.get("/sales", { headers }),
-        API.get("/sales-return", { headers }),
-      ]);
-      const salesData = salesRes.data.data || salesRes.data || [];
-      const returnsData = returnsRes.data.data || returnsRes.data || [];
+      const salesRes = await API.get("/sales", { headers });
+
+const salesData = salesRes.data.data || salesRes.data || [];
+const returnsData = [];
       const mappedReturns = returnsData.map(mapReturnRecord);
       const returnsBySalesId = {};
       returnsData.forEach((ret) => {
@@ -1563,7 +1569,7 @@ const searchInputRef = useRef(null);
     try {
       const token = await getToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await API.get("/payment-in", { headers });
+      const res = await API.get("/payments", { headers });
       const data = res.data.data || res.data || [];
       const mapped = data.map(mapPayment);
       setPayments(mapped);

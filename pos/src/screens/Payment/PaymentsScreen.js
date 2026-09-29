@@ -97,18 +97,58 @@ const normalizeMethod = (raw) => {
 
 const mapPayment = (col) => {
   const rawMethod = col.payment_method || col.paymentMode || "-";
+
+  const customer =
+    col.customer_id ||
+    col.client_id ||
+    {};
+
+  const customerName =
+    col.customer_name ||
+    customer.company_name ||
+    customer.name ||
+    `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
+    "";
+
   return {
     id: col._id,
     receiptNo: col.receipt_no || "-",
-    invoiceNo: col.invoice_no || (col.invoice_ids && col.invoice_ids[0]) || "-",
+
+    invoiceNo:
+      col.invoice_no ||
+      (col.invoice_ids && col.invoice_ids[0]) ||
+      "-",
+
     invoiceIds: col.invoice_ids || [],
-    date: col.date || col.payment_date || col.createdOn || col.createdAt || "",
+
+    date:
+      col.date ||
+      col.payment_date ||
+      col.createdOn ||
+      col.createdAt ||
+      "",
+
     methodRaw: rawMethod,
     method: normalizeMethod(rawMethod),
-    customerName: col.customer_name || (col.client_id && col.client_id.first_name) || "",
+
+    customerName,
+
+    customerId:
+      customer._id ||
+      col.customer_id ||
+      col.client_id ||
+      "",
+
     remarks: col.remarks || col.note || "",
+
     amount: Number(col.amount || 0),
-    dateGroup: dateGroupFor(col.date || col.payment_date || col.createdOn || col.createdAt),
+
+    dateGroup: dateGroupFor(
+      col.date ||
+        col.payment_date ||
+        col.createdOn ||
+        col.createdAt
+    ),
   };
 };
 
@@ -386,7 +426,7 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     try {
       const token = await getToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await API.get("/payment-in", { headers });
+      const res = await API.get("/payments", { headers });
       const data = res.data.data || res.data || [];
       const mapped = data
         .map(mapPayment)

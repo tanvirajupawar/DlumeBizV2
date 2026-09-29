@@ -117,14 +117,16 @@ export default function CustomerFormScreen({
   onBack,
   onSave,
 }) {
-  const {
-    name = "",
-    mobile = "",
-    email = "",
-    address1 = "",
-    address2 = "",
-    state = "",
-  } = values;
+const {
+  name = "",
+  mobile = "",
+  email = "",
+  company_name = "",
+  address1 = "",
+  address2 = "",
+  state = "",
+  opening_balance = "",
+} = values;
 
   const [stateModalVisible, setStateModalVisible] = useState(false);
   const [stateQuery, setStateQuery] = useState("");
@@ -185,6 +187,12 @@ export default function CustomerFormScreen({
               onChangeText={(t) => onChange("name", t)}
             />
             <FormField
+  label="Company Name"
+  value={company_name}
+  onChangeText={(t) => onChange("company_name", t)}
+  placeholder="e.g. ABC Traders"
+/>
+            <FormField
               label="Mobile Number"
               value={mobile}
               onChangeText={(t) => onChange("mobile", t)}
@@ -198,6 +206,14 @@ export default function CustomerFormScreen({
               placeholder="e.g. customername@domain.com"
               keyboardType="email-address"
             />
+            <FormField
+  label="Opening Balance"
+  value={opening_balance}
+  onChangeText={(t) => onChange("opening_balance", t)}
+  placeholder="e.g. 5000"
+  keyboardType="numeric"
+/>
+
           </View>
         </View>
 

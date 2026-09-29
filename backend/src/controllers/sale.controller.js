@@ -4,6 +4,8 @@ import Company from "../models/company.model.js";
 import { getNextInvoiceNumber } from "../services/sale.service.js";
 import Customer from "../models/customer.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
+import PaymentAllocation from "../models/payment_allocation.model.js";
+
 
 export const createSale = async (req, res) => {
   try {
@@ -262,6 +264,149 @@ if (
     return res.status(500).json({
       success: false,
       message: "Failed to create sale",
+      error: error.message,
+    });
+  }
+};
+
+export const getSales = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { customer_id } = req.query;
+
+    console.log("🔥 GET SALES HIT");
+    console.log("🔥 COMPANY:", companyId);
+    console.log("🔥 CUSTOMER FILTER:", customer_id || "ALL");
+
+    // --------------------------------
+    // BUILD FILTER
+    // --------------------------------
+
+    const saleFilter = {
+      company_id: companyId,
+    };
+
+    if (customer_id) {
+      saleFilter.customer_id = customer_id;
+    }
+
+    // --------------------------------
+    // GET SALES
+    // --------------------------------
+
+    const sales = await Sale.find(saleFilter)
+      .populate("customer_id")
+      .populate("created_by", "name email")
+      .sort({ invoice_date: -1 })
+      .lean();
+
+    console.log("🔥 SALES FOUND:", sales.length);
+
+    // --------------------------------
+    // SALE IDS
+    // --------------------------------
+
+    const saleIds = sales.map((sale) => sale._id);
+
+    // --------------------------------
+    // GET SALE ITEMS
+    // --------------------------------
+
+    const saleItems = saleIds.length
+      ? await SaleItem.find({
+          company_id: companyId,
+          sale_id: { $in: saleIds },
+        }).lean()
+      : [];
+
+    // --------------------------------
+    // GET PAYMENT ALLOCATIONS
+    // --------------------------------
+
+    const paymentAllocations = saleIds.length
+      ? await PaymentAllocation.find({
+          company_id: companyId,
+          sale_id: { $in: saleIds },
+        }).lean()
+      : [];
+
+    // --------------------------------
+    // CALCULATE PAID BY SALE
+    // --------------------------------
+
+    const paidBySale = {};
+
+    for (const allocation of paymentAllocations) {
+      const saleId = allocation.sale_id.toString();
+
+      if (!paidBySale[saleId]) {
+        paidBySale[saleId] = 0;
+      }
+
+      paidBySale[saleId] += Number(allocation.amount || 0);
+    }
+
+    // --------------------------------
+    // GROUP ITEMS BY SALE
+    // --------------------------------
+
+    const itemsBySale = {};
+
+    for (const item of saleItems) {
+      const saleId = item.sale_id.toString();
+
+      if (!itemsBySale[saleId]) {
+        itemsBySale[saleId] = [];
+      }
+
+      itemsBySale[saleId].push(item);
+    }
+
+    // --------------------------------
+    // FINAL DATA
+    // --------------------------------
+
+    const data = sales.map((sale) => {
+      const saleId = sale._id.toString();
+
+      const totalAmount = Number(sale.total_amount || 0);
+      const paidAmount = Number(paidBySale[saleId] || 0);
+
+      const remainingAmount = Math.max(
+        0,
+        totalAmount - paidAmount
+      );
+
+      let status = "UNPAID";
+
+      if (remainingAmount === 0) {
+        status = "PAID";
+      } else if (paidAmount > 0) {
+        status = "PARTIAL";
+      }
+
+      return {
+        ...sale,
+
+        paid_amount: Number(paidAmount.toFixed(2)),
+        remaining_amount: Number(remainingAmount.toFixed(2)),
+        status,
+
+        items: itemsBySale[saleId] || [],
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+
+  } catch (error) {
+    console.error("❌ Get sales error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch sales",
       error: error.message,
     });
   }
