@@ -179,8 +179,15 @@ export default function POSPaymentSuccessScreen({ route, navigation }) {
     outputRange: [circumference, 0],
   });
 
-  const paymentLabel = PAYMENT_LABELS[paymentMethod] || paymentMethod;
-  const paymentIcon = PAYMENT_ICONS[paymentMethod] || "wallet-outline";
+const paymentLabel = PAYMENT_LABELS[paymentMethod] || paymentMethod;
+const paymentIcon = PAYMENT_ICONS[paymentMethod] || "wallet-outline";
+
+const isCreditSave = Number(amount) === 0;
+const savedOrderAmount = Number(
+  saleCompleted?.total_amount ||
+  saleCompleted?.totalAmount ||
+  0
+);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -243,17 +250,30 @@ export default function POSPaymentSuccessScreen({ route, navigation }) {
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          <Text style={styles.eyebrow}>PAYMENT SUCCESSFUL</Text>
+      <Text style={styles.eyebrow}>
+  {isCreditSave ? "ORDER SAVED" : "PAYMENT SUCCESSFUL"}
+</Text>
 
-          <Text style={styles.amount}>
-            {"\u20B9"}
-            {Number(amount).toFixed(2)}
-          </Text>
+<Text style={styles.amount}>
+  {"\u20B9"}
+  {isCreditSave
+    ? savedOrderAmount.toFixed(2)
+    : Number(amount).toFixed(2)}
+</Text>
 
-          <View style={styles.methodPill}>
-            <MaterialCommunityIcons name={paymentIcon} size={15} color={ACCENT_DARK} />
-            <Text style={styles.methodPillText}>Paid via {paymentLabel}</Text>
-          </View>
+<View style={styles.methodPill}>
+  <MaterialCommunityIcons
+    name={isCreditSave ? "clock-outline" : paymentIcon}
+    size={15}
+    color={ACCENT_DARK}
+  />
+
+  <Text style={styles.methodPillText}>
+    {isCreditSave
+      ? "Full amount added to outstanding"
+      : `Paid via ${paymentLabel}`}
+  </Text>
+</View>
 
           <View style={styles.divider} />
 

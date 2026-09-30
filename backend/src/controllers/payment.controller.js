@@ -13,11 +13,12 @@ let transactionStarted = false;
     const companyId = req.user.company_id;
     const userId = req.user._id;
 
-  const {
+const {
   sale_id,
   customer_id,
   amount,
   payment_method,
+  payment_date,
   reference_no = "",
   remarks = "",
 } = req.body;
@@ -65,13 +66,41 @@ const company = await Company.findById(companyId).session(session);
     }
 
 
-    // --------------------------------
-// OPENING BALANCE ONLY PAYMENT
+
+// --------------------------------
+// 3. FIND CURRENT SALE / CUSTOMER
 // --------------------------------
 
-if (!sale_id && customer_id) {
-  const customer = await Customer.findOne({
-    _id: customer_id,
+let sale = null;
+let customer = null;
+
+// --------------------------------
+// 3A. INVOICE SELECTED
+// --------------------------------
+
+if (sale_id) {
+  sale = await Sale.findOne({
+    _id: sale_id,
+    company_id: companyId,
+  }).session(session);
+
+  if (!sale) {
+    return res.status(404).json({
+      success: false,
+      message: "Sale not found",
+    });
+  }
+}
+
+// --------------------------------
+// 3B. FIND CUSTOMER
+// --------------------------------
+
+const targetCustomerId = sale?.customer_id || customer_id;
+
+if (targetCustomerId) {
+  customer = await Customer.findOne({
+    _id: targetCustomerId,
     company_id: companyId,
     is_active: true,
   }).session(session);
@@ -82,46 +111,64 @@ if (!sale_id && customer_id) {
       message: "Customer not found",
     });
   }
+}
 
-  // Original opening balance
-  const originalOpeningBalance = Number(
-    customer.opening_balance || 0
-  );
+// --------------------------------
+// 4. NON-CREDIT / WALK-IN RULES
+// --------------------------------
 
-  // Payments already made against opening balance
-  const openingBalancePayments = await CustomerLedger.find({
+if (sale) {
+  if (company.payment_mode === "NON_CREDIT") {
+    if (paymentAmount < Number(sale.total_amount || 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Full payment is required for NON_CREDIT mode",
+      });
+    }
+  }
+
+  if (company.payment_mode === "CREDIT" && !sale.customer_id) {
+    if (paymentAmount < Number(sale.total_amount || 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Walk-in sale must be paid in full",
+      });
+    }
+  }
+}
+
+// --------------------------------
+// 5. CURRENT SALE BALANCE
+// --------------------------------
+
+let currentAlreadyPaid = 0;
+let currentRemaining = 0;
+
+if (sale) {
+  const currentAllocations = await PaymentAllocation.find({
     company_id: companyId,
-    customer_id: customer._id,
-    type: "PAYMENT",
-    sale_id: null,
-    description: "Payment against opening balance",
+    sale_id: sale._id,
   })
     .session(session)
     .lean();
 
-  const openingBalancePaid =
-    openingBalancePayments.reduce(
-      (total, entry) =>
-        total + Number(entry.credit || 0),
-      0
-    );
-
-  const remainingOpeningBalance = Math.max(
-    0,
-    originalOpeningBalance - openingBalancePaid
+  currentAlreadyPaid = currentAllocations.reduce(
+    (total, allocation) =>
+      total + Number(allocation.amount || 0),
+    0
   );
 
-  // Cannot pay more than opening balance
-  if (paymentAmount > remainingOpeningBalance) {
-    return res.status(400).json({
-      success: false,
-      message: `Payment cannot exceed opening balance outstanding of ${remainingOpeningBalance.toFixed(
-        2
-      )}`,
-    });
-  }
+  currentRemaining = Math.max(
+    0,
+    Number(sale.total_amount || 0) - currentAlreadyPaid
+  );
+}
 
-  // Update customer account version
+// --------------------------------
+// 6. CREDIT CUSTOMER
+// --------------------------------
+
+if (customer) {
   const customerVersion =
     customer.account_version || 0;
 
@@ -147,259 +194,39 @@ if (!sale_id && customer_id) {
       "Customer account was updated by another payment. Please try again."
     );
   }
+}
 
-  // --------------------------------
-  // CREATE PAYMENT
-  // --------------------------------
+// --------------------------------
+// 7. BUILD PAYMENT ALLOCATION PLAN
+// --------------------------------
 
-  const [payment] = await Payment.create(
-    [
-      {
-        company_id: companyId,
-        customer_id: customer._id,
-        amount: paymentAmount,
-        payment_method,
-        reference_no: String(reference_no || "").trim(),
-        remarks: String(remarks || "").trim(),
-        received_by: userId,
-      },
-    ],
-    { session }
+let remainingPayment = paymentAmount;
+
+const allocationPlan = [];
+
+
+// --------------------------------
+// 7A. CURRENT INVOICE FIRST
+// --------------------------------
+
+if (currentRemaining > 0 && remainingPayment > 0) {
+  const amountForCurrentSale = Math.min(
+    remainingPayment,
+    currentRemaining
   );
 
-  // --------------------------------
-  // CREATE OPENING BALANCE LEDGER
-  // --------------------------------
-
-  await CustomerLedger.create(
-    [
-      {
-        company_id: companyId,
-        customer_id: customer._id,
-        type: "PAYMENT",
-        sale_id: null,
-        payment_id: payment._id,
-        debit: 0,
-        credit: paymentAmount,
-        description: "Payment against opening balance",
-        transaction_date: payment.payment_date,
-      },
-    ],
-    { session }
-  );
-
-  const newOpeningBalance =
-    Math.max(
-      0,
-      remainingOpeningBalance - paymentAmount
-    );
-
-  await session.commitTransaction();
-  await session.endSession();
-
-  return res.status(201).json({
-    success: true,
-    message: "Opening balance payment recorded successfully",
-
-    data: {
-      payment_id: payment._id,
-      customer_id: customer._id,
-
-      payment_amount: paymentAmount,
-
-      opening_balance_paid: paymentAmount,
-
-      remaining_opening_balance: newOpeningBalance,
-
-      status:
-        newOpeningBalance === 0
-          ? "PAID"
-          : "PARTIAL",
-    },
+  allocationPlan.push({
+    sale_id: sale._id,
+    amount: amountForCurrentSale,
   });
+
+  remainingPayment -= amountForCurrentSale;
 }
 
-    // --------------------------------
-    // 3. FIND CURRENT SALE
-    // --------------------------------
 
-const sale = await Sale.findOne({
-  _id: sale_id,
-  company_id: companyId,
-}).session(session);
-
-    if (!sale) {
-      return res.status(404).json({
-        success: false,
-        message: "Sale not found",
-      });
-    }
-
-    // --------------------------------
-    // 4. NON-CREDIT / WALK-IN RULES
-    // --------------------------------
-
-    if (company.payment_mode === "NON_CREDIT") {
-      if (paymentAmount < Number(sale.total_amount || 0)) {
-        return res.status(400).json({
-          success: false,
-          message: "Full payment is required for NON_CREDIT mode",
-        });
-      }
-    }
-
-    if (company.payment_mode === "CREDIT" && !sale.customer_id) {
-      if (paymentAmount < Number(sale.total_amount || 0)) {
-        return res.status(400).json({
-          success: false,
-          message: "Walk-in sale must be paid in full",
-        });
-      }
-    }
-
-    // --------------------------------
-    // 5. CURRENT SALE BALANCE
-    // --------------------------------
-
-const currentAllocations = await PaymentAllocation.find({
-  company_id: companyId,
-  sale_id: sale._id,
-}).session(session).lean();
-
-    const currentAlreadyPaid = currentAllocations.reduce(
-      (total, allocation) =>
-        total + Number(allocation.amount || 0),
-      0
-    );
-
-    const currentRemaining = Math.max(
-      0,
-      Number(sale.total_amount || 0) - currentAlreadyPaid
-    );
-
-    // --------------------------------
-    // 6. CREDIT CUSTOMER
-    // --------------------------------
-
-    let customer = null;
-
-    if (sale.customer_id) {
-customer = await Customer.findOne({
-  _id: sale.customer_id,
-  company_id: companyId,
-  is_active: true,
-}).session(session);
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: "Customer not found",
-        });
-      }
-    }
-const customerVersion = customer.account_version || 0;
-
-const customerVersionUpdate = await Customer.updateOne(
-  {
-    _id: customer._id,
-    company_id: companyId,
-    account_version: customerVersion,
-  },
-  {
-    $inc: { account_version: 1 },
-  },
-  { session }
-);
-
-if (customerVersionUpdate.modifiedCount !== 1) {
-  throw new Error(
-    "Customer account was updated by another payment. Please try again."
-  );
-}
-
-    // --------------------------------
-    // 7. BUILD PAYMENT ALLOCATION PLAN
-    // --------------------------------
-
-    let remainingPayment = paymentAmount;
-
-    const allocationPlan = [];
-
-    // --------------------------------
-    // 7A. CURRENT INVOICE FIRST
-    // --------------------------------
-
-    if (currentRemaining > 0 && remainingPayment > 0) {
-      const amountForCurrentSale = Math.min(
-        remainingPayment,
-        currentRemaining
-      );
-
-      allocationPlan.push({
-        sale_id: sale._id,
-        amount: amountForCurrentSale,
-      });
-
-      remainingPayment -= amountForCurrentSale;
-    }
-
-    // --------------------------------
-    // 7B. PREVIOUS CUSTOMER INVOICES
-    // OLDEST FIRST
-    // --------------------------------
-
-    if (
-      remainingPayment > 0 &&
-      customer &&
-      company.payment_mode === "CREDIT"
-    ) {
-const previousSales = await Sale.find({
-  company_id: companyId,
-  customer_id: customer._id,
-  _id: { $ne: sale._id },
-})
-  .session(session)
-  .sort({ invoice_date: 1, createdAt: 1 })
-  .lean();
-
-      for (const previousSale of previousSales) {
-        if (remainingPayment <= 0) break;
-const previousAllocations =
-  await PaymentAllocation.find({
-    company_id: companyId,
-    sale_id: previousSale._id,
-  }).session(session).lean();
-
-        const previousPaid = previousAllocations.reduce(
-          (total, allocation) =>
-            total + Number(allocation.amount || 0),
-          0
-        );
-
-        const previousRemaining = Math.max(
-          0,
-          Number(previousSale.total_amount || 0) - previousPaid
-        );
-
-        if (previousRemaining <= 0) continue;
-
-        const amountForPreviousSale = Math.min(
-          remainingPayment,
-          previousRemaining
-        );
-
-        allocationPlan.push({
-          sale_id: previousSale._id,
-          amount: amountForPreviousSale,
-        });
-
-        remainingPayment -= amountForPreviousSale;
-      }
-    }
-
-    // --------------------------------
-    // 7C. OPENING BALANCE
-    // --------------------------------
+// --------------------------------
+// 7B. OPENING BALANCE
+// --------------------------------
 
 let openingBalancePayment = 0;
 
@@ -408,19 +235,19 @@ if (
   customer &&
   company.payment_mode === "CREDIT"
 ) {
-  // Original opening balance
   const originalOpeningBalance = Number(
     customer.opening_balance || 0
   );
 
-  // Get previous payments made against opening balance
-const openingBalancePayments = await CustomerLedger.find({
-  company_id: companyId,
-  customer_id: customer._id,
-  type: "PAYMENT",
-  sale_id: null,
-  description: "Payment against opening balance",
-}).session(session).lean();
+  const openingBalancePayments = await CustomerLedger.find({
+    company_id: companyId,
+    customer_id: customer._id,
+    type: "PAYMENT",
+    sale_id: null,
+    description: "Payment against opening balance",
+  })
+    .session(session)
+    .lean();
 
   const openingBalancePaid = openingBalancePayments.reduce(
     (total, entry) =>
@@ -428,7 +255,6 @@ const openingBalancePayments = await CustomerLedger.find({
     0
   );
 
-  // Remaining opening balance
   const remainingOpeningBalance = Math.max(
     0,
     originalOpeningBalance - openingBalancePaid
@@ -440,6 +266,66 @@ const openingBalancePayments = await CustomerLedger.find({
   );
 
   remainingPayment -= openingBalancePayment;
+}
+
+
+// --------------------------------
+// 7C. PREVIOUS CUSTOMER INVOICES
+// OLDEST FIRST
+// --------------------------------
+
+if (
+  remainingPayment > 0 &&
+  customer &&
+  company.payment_mode === "CREDIT"
+) {
+const previousSales = await Sale.find({
+  company_id: companyId,
+  customer_id: customer._id,
+  ...(sale?._id
+    ? { _id: { $ne: sale._id } }
+    : {}),
+})
+  .session(session)
+  .sort({ invoice_date: 1, createdAt: 1 })
+  .lean();
+
+  for (const previousSale of previousSales) {
+    if (remainingPayment <= 0) break;
+
+    const previousAllocations =
+      await PaymentAllocation.find({
+        company_id: companyId,
+        sale_id: previousSale._id,
+      })
+        .session(session)
+        .lean();
+
+    const previousPaid = previousAllocations.reduce(
+      (total, allocation) =>
+        total + Number(allocation.amount || 0),
+      0
+    );
+
+    const previousRemaining = Math.max(
+      0,
+      Number(previousSale.total_amount || 0) - previousPaid
+    );
+
+    if (previousRemaining <= 0) continue;
+
+    const amountForPreviousSale = Math.min(
+      remainingPayment,
+      previousRemaining
+    );
+
+    allocationPlan.push({
+      sale_id: previousSale._id,
+      amount: amountForPreviousSale,
+    });
+
+    remainingPayment -= amountForPreviousSale;
+  }
 }
 
     // --------------------------------
@@ -460,9 +346,12 @@ const openingBalancePayments = await CustomerLedger.find({
 const [payment] = await Payment.create(
   [{
     company_id: companyId,
-    customer_id: sale.customer_id,
+    customer_id: customer?._id || null,
     amount: paymentAmount,
     payment_method,
+
+payment_date: payment_date || new Date().toISOString().slice(0, 10),
+
     reference_no: String(reference_no || "").trim(),
     remarks: String(remarks || "").trim(),
     received_by: userId,
@@ -532,93 +421,116 @@ if (openingBalancePayment > 0) {
   
 }
 
-    // --------------------------------
-    // 12. CURRENT SALE NEW BALANCE
-    // --------------------------------
+// --------------------------------
+// 12. CURRENT SALE NEW BALANCE
+// --------------------------------
 
-    const currentPaymentAllocation =
-      allocationPlan.find(
-        (item) =>
-          String(item.sale_id) === String(sale._id)
-      );
+let currentPaymentAmount = 0;
+let newPaidAmount = 0;
+let newRemainingAmount = 0;
+let status = "ALLOCATED";
 
-    const currentPaymentAmount =
-      Number(currentPaymentAllocation?.amount || 0);
-
-    const newPaidAmount =
-      currentAlreadyPaid + currentPaymentAmount;
-
-    const newRemainingAmount = Math.max(
-      0,
-      Number(sale.total_amount || 0) -
-        newPaidAmount
+if (sale) {
+  const currentPaymentAllocation =
+    allocationPlan.find(
+      (item) =>
+        String(item.sale_id) === String(sale._id)
     );
 
-    let status = "UNPAID";
+  currentPaymentAmount =
+    Number(currentPaymentAllocation?.amount || 0);
 
-    if (newRemainingAmount === 0) {
-      status = "PAID";
-    } else if (newPaidAmount > 0) {
-      status = "PARTIAL";
-    }
+  newPaidAmount =
+    currentAlreadyPaid + currentPaymentAmount;
 
-    // --------------------------------
-    // 13. RESPONSE
-    // --------------------------------
+  newRemainingAmount = Math.max(
+    0,
+    Number(sale.total_amount || 0) -
+      newPaidAmount
+  );
+
+  status = "UNPAID";
+
+  if (newRemainingAmount === 0) {
+    status = "PAID";
+  } else if (newPaidAmount > 0) {
+    status = "PARTIAL";
+  }
+}
+
+   // --------------------------------
+// 13. RESPONSE
+// --------------------------------
 
 await session.commitTransaction();
 await session.endSession();
-    return res.status(201).json({
-      
-      success: true,
-      message: "Payment recorded successfully",
-      data: {
-        payment_id: payment._id,
-        sale_id: sale._id,
-        invoice_no: sale.invoice_no,
 
-        payment_amount: paymentAmount,
+return res.status(201).json({
+  success: true,
+  message: "Payment recorded successfully",
 
-        current_invoice_paid: currentPaymentAmount,
+  data: {
+    payment_id: payment._id,
 
-        previous_invoices_paid:
-          allocationPlan
-            .filter(
-              (item) =>
-                String(item.sale_id) !==
-                String(sale._id)
-            )
-            .reduce(
-              (total, item) =>
-                total + Number(item.amount || 0),
-              0
-            ),
+    sale_id: sale?._id || null,
 
-        opening_balance_paid:
-          openingBalancePayment,
+    invoice_no: sale?.invoice_no || null,
 
-        paid_amount: newPaidAmount,
-        remaining_amount: newRemainingAmount,
+    customer_id: customer?._id || null,
 
-        status,
+    payment_amount: paymentAmount,
 
-        allocations: createdAllocations.map(
-          (allocation) => ({
-            allocation_id: allocation._id,
-            sale_id: allocation.sale_id,
-            amount: allocation.amount,
-          })
+    current_invoice_paid: currentPaymentAmount,
+
+    previous_invoices_paid:
+      allocationPlan
+        .filter(
+          (item) =>
+            !sale ||
+            String(item.sale_id) !==
+              String(sale._id)
+        )
+        .reduce(
+          (total, item) =>
+            total + Number(item.amount || 0),
+          0
         ),
-      },
-    });
+
+    opening_balance_paid:
+      openingBalancePayment,
+
+    paid_amount: newPaidAmount,
+
+    remaining_amount: newRemainingAmount,
+
+    status,
+
+    allocations: createdAllocations.map(
+      (allocation) => ({
+        allocation_id: allocation._id,
+        sale_id: allocation.sale_id,
+        amount: allocation.amount,
+      })
+    ),
+  },
+});
+
 } catch (error) {
+  console.error("❌ Create payment error:", error);
+
   if (transactionStarted) {
-    await session.abortTransaction();
+    try {
+      await session.abortTransaction();
+    } catch (abortError) {
+      console.error("❌ Transaction abort error:", abortError);
+    }
   }
 
-  await session.endSession();
-
-  console.error("Create payment error:", error);
+  try {
+    await session.endSession();
+  } catch (sessionError) {
+    console.error("❌ Session end error:", sessionError);
+  }
 
   return res.status(500).json({
     success: false,
@@ -627,8 +539,6 @@ await session.endSession();
   });
 }
 };
-
-// ================= GET PAYMENTS =================
 
 // ================= GET PAYMENTS =================
 
@@ -657,12 +567,16 @@ export const getPayments = async (req, res) => {
     // GET PAYMENTS
     // --------------------------------
 
-    const payments = await Payment.find(paymentFilter)
-      .sort({
-        payment_date: -1,
-        createdAt: -1,
-      })
-      .lean();
+const payments = await Payment.find(paymentFilter)
+  .populate(
+    "customer_id",
+    "first_name last_name name company_name"
+  )
+  .sort({
+    payment_date: -1,
+    createdAt: -1,
+  })
+  .lean();
 
     console.log("🔥 PAYMENTS FOUND:", payments.length);
 

@@ -13,6 +13,7 @@ const paymentSchema = new mongoose.Schema(
       ref: "Customer",
       default: null,
     },
+    
 
     amount: {
       type: Number,
@@ -26,10 +27,10 @@ const paymentSchema = new mongoose.Schema(
       required: true,
     },
 
-    payment_date: {
-      type: Date,
-      default: Date.now,
-    },
+payment_date: {
+  type: String,
+  required: true,
+},
 
     reference_no: {
       type: String,

@@ -14,6 +14,9 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { getCreditSummary } from "../../api/invoice";
+import { Alert } from "react-native";
+import { createSale } from "../../api/sale";
+import { useAuth } from "../../context/AuthContext";
 
 // below this width (phones in portrait) the two panes stack vertically
 const SPLIT_BREAKPOINT = 600;
@@ -24,6 +27,7 @@ export default function CreditSummaryScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isSplit = width >= SPLIT_BREAKPOINT;
+  const { user, company } = useAuth();
 
   const {
     cartItems = [],
@@ -37,6 +41,7 @@ export default function CreditSummaryScreen() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [savingOrder, setSavingOrder] = useState(false);
 
   const onBack = () => navigation.goBack();
 
@@ -48,7 +53,7 @@ export default function CreditSummaryScreen() {
         console.log("🔥 CREDIT SUMMARY API RESPONSE:", response);
 
         setSummary(response.data);
-        setPaymentAmount(String(response.data?.total_payable || 0));
+setPaymentAmount("");
       } catch (error) {
         console.log(
           "❌ CREDIT SUMMARY ERROR:",
@@ -62,10 +67,165 @@ export default function CreditSummaryScreen() {
     loadSummary();
   }, [customer?._id, grandTotal]);
 
-  const totalPayable = Number(summary?.total_payable || 0);
-  const amount = Number(paymentAmount);
-  const isInvalid = !amount || amount <= 0 || amount > totalPayable;
 
+  const saveOrderOnCredit = async () => {
+  if (savingOrder) return;
+
+  try {
+    setSavingOrder(true);
+
+    const customerId = customer?._id || customer?.id || null;
+
+    const payload = {
+      customer_id: customerId,
+
+      source: "POS",
+      sale_mode: "CALCULATOR",
+
+      subtotal: Number(subtotal) || 0,
+      discount_amount: Number(discount) || 0,
+      total_amount: Number(grandTotal) || 0,
+
+      items: cartItems.map((item) => ({
+        product_id: null,
+        product_name: item.product || item.name || "",
+        description: item.description || "",
+        qty: Number(item.qty) || 0,
+        rate: Number(item.price) || 0,
+        amount:
+          (Number(item.qty) || 0) *
+          (Number(item.price) || 0),
+        unit: item.unit || "PCS",
+        hsn: "",
+        gst_rate: 0,
+      })),
+    };
+
+    console.log("💾 SAVE ORDER ON CREDIT:", payload);
+
+    const response = await createSale(payload);
+
+    const sale = response.data || response;
+
+    console.log("✅ CREDIT ORDER SAVED:", sale);
+
+   navigation.replace("POSPaymentSuccess", {
+  saleId: sale._id || sale.sale_id,
+  saleCompleted: sale,
+  amount: 0,
+  paymentMethod: "CREDIT",
+
+receipt: {
+  companyName: company?.name || "D'LumeBiz",
+
+  companyAddress: [
+    company?.address,
+    company?.area,
+    company?.city,
+    company?.state,
+    company?.country,
+    company?.pincode,
+  ]
+    .filter(Boolean)
+    .join(", "),
+
+  companyPhone: company?.mobile || "",
+  companyEmail: company?.email || user?.email || "",
+
+  invoiceNo:
+    sale.invoice_no ||
+    sale.invoiceNo ||
+    "",
+
+  invoiceDate:
+    sale.invoice_date ||
+    sale.order_date ||
+    new Date().toLocaleString(),
+
+  customerName:
+    customer?.company_name ||
+    customer?.name ||
+    `${customer?.first_name || ""} ${customer?.last_name || ""}`.trim() ||
+    "Walk-in",
+
+  paymentMode: "Credit",
+
+  subtotal: Number(subtotal) || 0,
+  totalDiscount: Number(discount) || 0,
+  totalTax: Number(tax) || 0,
+
+  finalPaymentAmount: Number(grandTotal) || 0,
+
+  // IMPORTANT
+  amountReceived: 0,
+
+  receipt_size: "58mm",
+  isGSTUser: false,
+  isIntraState: true,
+
+  items: cartItems.map((item) => ({
+    name: item.isCalculatorItem
+      ? item.product || item.name || ""
+      : item.product_name ||
+        item.item_name ||
+        item.productName ||
+        item.title ||
+        item.name ||
+        "",
+
+    product_name:
+      item.product_name ||
+      item.item_name ||
+      item.productName ||
+      item.title ||
+      item.name ||
+      "",
+
+    isCalculatorItem: !!item.isCalculatorItem,
+
+    qty: Number(item.qty) || 0,
+    price: Number(item.price) || 0,
+    rate: Number(item.price) || 0,
+
+    amount:
+      (Number(item.qty) || 0) *
+      (Number(item.price) || 0),
+
+    description: item.description || "",
+    desc: item.description || "",
+
+    discount: 0,
+    gstRate: 0,
+    hsn: item.hsn || "",
+  })),
+},
+});
+
+  } catch (error) {
+    console.log(
+      "❌ SAVE CREDIT ORDER ERROR:",
+      error?.response?.data || error?.message || error
+    );
+
+    Alert.alert(
+      "Unable to Save Order",
+      error?.response?.data?.message ||
+        "Something went wrong while saving the order."
+    );
+  } finally {
+    setSavingOrder(false);
+  }
+};
+
+const totalPayable = Number(summary?.total_payable || 0);
+const amount = paymentAmount === "" ? 0 : Number(paymentAmount);
+
+const remainingAmount = Math.max(0, totalPayable - amount);
+
+const isInvalid =
+  Number.isNaN(amount) ||
+  amount < 0 ||
+  amount > totalPayable;
   const goToCheckout = () => {
     if (isInvalid) return;
 
@@ -80,6 +240,34 @@ export default function CreditSummaryScreen() {
       paymentAmount: amount,
     });
   };
+
+  const isCreditOnly = amount <= 0;
+const isDisabled = isInvalid || savingOrder;
+
+const handleMainAction = () => {
+  if (isDisabled) return;
+
+  if (isCreditOnly) {
+    const customerName =
+      customer?.company_name ||
+      customer?.name ||
+      `${customer?.first_name || ""} ${customer?.last_name || ""}`.trim() ||
+      "this customer";
+
+    Alert.alert(
+      "Save Order on Credit?",
+      `An order of \u20B9${Number(grandTotal || 0).toFixed(2)} will be saved on credit for ${customerName} with no payment received now.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Save Order", onPress: saveOrderOnCredit },
+      ],
+      { cancelable: true }
+    );
+  } else {
+    goToCheckout();
+  }
+};
+
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -177,21 +365,36 @@ export default function CreditSummaryScreen() {
                 onChangeText={setPaymentAmount}
               />
             </View>
-            <Text style={styles.helperText}>
-              Maximum payable: {"\u20B9"}
-              {totalPayable.toFixed(2)}
-            </Text>
+       
+
+<View style={styles.remainingRow}>
+  <Text style={styles.remainingLabel}>Remaining After Payment</Text>
+  <Text style={styles.remainingValue}>
+    {"₹"}{remainingAmount.toFixed(2)}
+  </Text>
+</View>
           </View>
         </View>
 
-        <TouchableOpacity
-          disabled={isInvalid}
-          style={[styles.continueButton, isInvalid && { opacity: 0.5 }]}
-          activeOpacity={0.85}
-          onPress={goToCheckout}
-        >
-          <Text style={styles.continueText}>Continue to Payment</Text>
-        </TouchableOpacity>
+{/* Single action: Continue to Payment / Save Order on Credit */}
+<TouchableOpacity
+  disabled={isDisabled}
+  style={[
+    styles.continueButton,
+    isCreditOnly && styles.creditButton,
+    isDisabled && { opacity: 0.5 },
+  ]}
+  activeOpacity={0.85}
+  onPress={handleMainAction}
+>
+  {savingOrder ? (
+    <ActivityIndicator color="#FFFFFF" />
+  ) : (
+    <Text style={styles.continueText}>
+      {isCreditOnly ? "Save Order on Credit" : "Continue to Payment"}
+    </Text>
+  )}
+</TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -387,4 +590,42 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
   },
+  saveOrderButton: {
+  height: 54,
+  borderRadius: 10,
+  backgroundColor: "#16A34A",
+  alignItems: "center",
+  justifyContent: "center",
+  marginTop: 12,
+},
+
+saveOrderText: {
+  color: "#FFFFFF",
+  fontSize: 17,
+  fontWeight: "700",
+},
+remainingRow: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 14,
+  paddingTop: 14,
+  borderTopWidth: 1,
+  borderTopColor: "#E2E8F0",
+},
+
+remainingLabel: {
+  fontSize: 15,
+  fontWeight: "700",
+  color: "#64748B",
+},
+
+remainingValue: {
+  fontSize: 18,
+  fontWeight: "800",
+  color: "#DC2626",
+},
+creditButton: {
+  backgroundColor: "#16A34A",
+},
 });

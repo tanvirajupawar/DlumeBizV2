@@ -11,7 +11,9 @@ import {
   Pressable,
   Dimensions,
   RefreshControl,
+  Animated,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import API from "../../api/axios";
 import { MaterialCommunityIcons, Feather } from "@expo/vector-icons";
@@ -43,21 +45,85 @@ const getToken = async () => {
 
 const money = (n) => Number(n || 0).toFixed(2);
 
-const formatDate = (isoDate) => {
-  if (!isoDate) return "-";
-  const d = new Date(isoDate);
-  if (isNaN(d)) return "-";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+// ── Date helpers ───────────────────────────────────────────────────────
+
+// Local YYYY-MM-DD key for a JS Date (used for the calendar picker values).
+const dateKey = (d) => {
+  if (!d) return "";
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt)) return "";
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 };
 
-const formatTime = (isoDate) => {
-  if (!isoDate) return "";
-  const d = new Date(isoDate);
-  if (isNaN(d)) return "";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// YYYY-MM-DD key for a PAYMENT's date value. Uses exactly the same rules as
+// formatDate below, so the date a row is *displayed* under is always the
+// date it's *filtered* under:
+//   - plain "YYYY-MM-DD" business dates are used as-is
+//   - old ISO timestamps are shifted to IST first
+const paymentDateKey = (value) => {
+  if (!value) return "";
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "";
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  const yyyy = ist.getUTCFullYear();
+  const mm = String(ist.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(ist.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const formatDateLong = (d) => {
+  if (!d) return "-";
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt)) return "-";
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
+};
+
+// Sun-first month grid (nulls = leading blank cells) for the lightweight
+// date picker — no extra date-picker dependency needed.
+const getCalendarCells = (monthDate) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  return cells;
+};
+
+const formatDate = (value) => {
+  if (!value) return "-";
+
+  const dateString = String(value);
+
+  // YYYY-MM-DD
+  const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (match) {
+    const [, yyyy, mm, dd] = match;
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  // Temporary support for old ISO records
+  const d = new Date(dateString);
+
+  if (isNaN(d.getTime())) return "-";
+
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+
+  const dd = String(ist.getUTCDate()).padStart(2, "0");
+  const mm = String(ist.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = ist.getUTCFullYear();
+
+  return `${dd}/${mm}/${yyyy}`;
 };
 
 const dateGroupFor = (isoDate) => {
@@ -98,10 +164,7 @@ const normalizeMethod = (raw) => {
 const mapPayment = (col) => {
   const rawMethod = col.payment_method || col.paymentMode || "-";
 
-  const customer =
-    col.customer_id ||
-    col.client_id ||
-    {};
+  const customer = col.customer_id || col.client_id || {};
 
   const customerName =
     col.customer_name ||
@@ -110,51 +173,45 @@ const mapPayment = (col) => {
     `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
     "";
 
+  const paymentDate =
+    col.payment_date || col.date || col.createdOn || col.createdAt || "";
+
   return {
     id: col._id,
-    receiptNo: col.receipt_no || "-",
-
-    invoiceNo:
-      col.invoice_no ||
-      (col.invoice_ids && col.invoice_ids[0]) ||
+    receiptNo:
+      col.receipt_no ||
+      col.receiptNo ||
+      col.payment_receipt_no ||
+      col.paymentReceiptNo ||
+      col.receipt_number ||
       "-",
+
+    invoiceNo: col.invoice_no || (col.invoice_ids && col.invoice_ids[0]) || "-",
 
     invoiceIds: col.invoice_ids || [],
 
-    date:
-      col.date ||
-      col.payment_date ||
-      col.createdOn ||
-      col.createdAt ||
-      "",
+    date: paymentDate,
+
+    createdAt: col.createdAt || col.created_on || col.createdOn || "",
 
     methodRaw: rawMethod,
     method: normalizeMethod(rawMethod),
 
     customerName,
 
-    customerId:
-      customer._id ||
-      col.customer_id ||
-      col.client_id ||
-      "",
+    customerId: customer._id || col.customer_id || col.client_id || "",
 
-    remarks: col.remarks || col.note || "",
+    remarks: col.remarks || col.remark || col.note || col.payment_remarks || "",
 
     amount: Number(col.amount || 0),
 
-    dateGroup: dateGroupFor(
-      col.date ||
-        col.payment_date ||
-        col.createdOn ||
-        col.createdAt
-    ),
+    dateGroup: dateGroupFor(paymentDate),
   };
 };
 
-// ─── Method filter dropdown (replaces the old tab bar) ─────────────────────
-// Sits in the Header's left area, right next to "Payments". Options are
-// "All Payments" plus the three canonical methods; "all" stays the default.
+// ─── Method filter dropdown ────────────────────────────────────────────────
+// Sits in the Header's right area. Options are "All Payments" plus the three
+// canonical methods; "all" stays the default.
 
 const DROPDOWN_OPTIONS = [
   { key: "all", label: "All Payments", icon: "wallet-outline", color: colors.primary },
@@ -253,8 +310,7 @@ function MethodDropdown({ value, totals, onChange }) {
 // ─── Payment list row ────────────────────────────────────────────────────
 // Memoized: with a stable `onPress` (see PaymentsScreen's
 // handleSelectPayment) and a stable per-row identity, a row only
-// re-renders when its own `payment` or `isActive` prop actually changes —
-// not on every keystroke in search or every method-dropdown change.
+// re-renders when its own `payment` or `isActive` prop actually changes.
 const PaymentListRow = React.memo(function PaymentListRow({ payment, isActive, onPress }) {
   const meta = METHOD_META[payment.method];
   return (
@@ -265,7 +321,7 @@ const PaymentListRow = React.memo(function PaymentListRow({ payment, isActive, o
     >
       <View style={styles.listRowTopLine}>
         <Text style={styles.listRowId} numberOfLines={1}>
-          {payment.receiptNo}
+          {payment.customerName || "Walk-in Customer"}
         </Text>
         <Text style={styles.listRowAmount}>{"\u20B9"}{money(payment.amount)}</Text>
       </View>
@@ -285,16 +341,12 @@ const PaymentListRow = React.memo(function PaymentListRow({ payment, isActive, o
           <MaterialCommunityIcons name={meta.icon} size={13} color={meta.color} />
           <Text style={[styles.methodChipText, { color: meta.color }]}>{meta.label}</Text>
         </View>
-        <Text style={styles.listRowTime}>{formatDate(payment.date)} · {formatTime(payment.date)}</Text>
       </View>
     </TouchableOpacity>
   );
 });
 
 // ─── Payment detail panel ────────────────────────────────────────────────
-// Single "Overview" tab, styled the same way OrderDetail's tab row is
-// styled on OrdersScreen. Everything that used to sit inside a bordered
-// "card" box now sits directly on the page as plain label/value rows.
 
 function PaymentDetail({ payment }) {
   if (!payment) {
@@ -317,7 +369,9 @@ function PaymentDetail({ payment }) {
       {/* Header */}
       <View style={styles.detailHeaderRow}>
         <View style={{ flex: 1, paddingRight: spacing.md }}>
-          <Text style={styles.detailReceiptNo}>{payment.receiptNo}</Text>
+          <Text style={styles.detailReceiptNo} numberOfLines={1}>
+            {payment.customerName || "Walk-in Customer"}
+          </Text>
           <Text style={styles.detailInvoiceNo}>Invoice: {payment.invoiceNo}</Text>
           {payment.customerName ? (
             <Text style={styles.detailCustomer}>{payment.customerName}</Text>
@@ -325,7 +379,7 @@ function PaymentDetail({ payment }) {
         </View>
         <View style={{ alignItems: "flex-end" }}>
           <Text style={styles.detailAmount}>{"\u20B9"}{money(payment.amount)}</Text>
-          <Text style={styles.detailDate}>{formatDate(payment.date)} · {formatTime(payment.date)}</Text>
+          <Text style={styles.detailDate}>{formatDate(payment.date)}</Text>
         </View>
       </View>
 
@@ -353,10 +407,7 @@ function PaymentDetail({ payment }) {
         <Text style={styles.plainRowLabel}>Payment Method</Text>
         <Text style={styles.plainRowValue}>{payment.methodRaw}</Text>
       </View>
-      <View style={styles.plainRow}>
-        <Text style={styles.plainRowLabel}>Receipt No.</Text>
-        <Text style={styles.plainRowValue}>{payment.receiptNo}</Text>
-      </View>
+
       <View style={[styles.plainRow, styles.plainRowLast]}>
         <Text style={styles.plainRowLabel}>Invoice No.</Text>
         <Text style={styles.plainRowValue}>{payment.invoiceNo}</Text>
@@ -372,30 +423,45 @@ function PaymentDetail({ payment }) {
   );
 }
 
-// ─── PaymentsScreen ─────────────────────────────────────────────────────────
-
-// Cache key — separate namespace from OrdersScreen's "payments:list:v1"
-// because the two screens map raw payment records into DIFFERENT shapes
-// (this screen adds methodRaw/method/customerName/dateGroup that
-// OrdersScreen's mapPayment doesn't produce). Bump the version suffix if
-// the shape of what's stored here ever changes, so a stale cached payload
-// from a previous app version doesn't get force-fed into new state shapes.
 const CACHE_KEYS = {
-  payments: "payments:screen:list:v1",
+  payments: "payments:screen:list:v2",
 };
 
+const SUMMARY_PANEL_WIDTH = 380;
+
 export default function PaymentsScreen({ onMenuPress = () => {} }) {
-  // ── Instant paint from the in-memory cache ────────────────────────────
-  // getCachedSync only checks the in-memory Map in utils/cache.js (no
-  // AsyncStorage round-trip), so if this screen has been visited before in
-  // the current app session — including "navigated away and came back" —
-  // these lazy initializers already have the last-known data the very
-  // first time this component renders. No blank list, no spinner flash.
-  //
-  // On a genuinely cold app launch the in-memory cache is empty, so these
-  // fall back to empty array / true-loading, and the mount effect below
-  // does the one-time async disk read (getCached) to paint from
-  // AsyncStorage instead — same pattern as OrdersScreen.
+  // ── Payment list date filter (null = show all dates) ───────────────
+  // Completely independent from the Daily Payment Summary date below.
+  const [listDate, setListDate] = useState(() => new Date());
+
+  // ── Daily Payment Summary date (independent of the payment list) ───
+  const [summaryDate, setSummaryDate] = useState(() => new Date());
+  const [dailySummaryVisible, setDailySummaryVisible] = useState(false);
+  // Cash / UPI / Card totals dropdown inside the summary panel (closed by default)
+  const [totalsOpen, setTotalsOpen] = useState(false);
+
+  // ── Shared calendar popup ──────────────────────────────────────────
+  // pickerTarget decides which filter the popup edits: "list" | "summary"
+  const [pickerTarget, setPickerTarget] = useState("list");
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerMonth, setPickerMonth] = useState(() => new Date());
+
+  // ── Side panel animation ───────────────────────────────────────────
+  const summaryPanelAnim = useRef(new Animated.Value(0)).current; // 0 = hidden, 1 = shown
+
+  useEffect(() => {
+    Animated.timing(summaryPanelAnim, {
+      toValue: dailySummaryVisible ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [dailySummaryVisible]);
+
+  const summaryPanelTranslateX = summaryPanelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [SUMMARY_PANEL_WIDTH, 0],
+  });
+
   const [payments, setPayments] = useState(
     () => getCachedSync(CACHE_KEYS.payments)?.data || []
   );
@@ -405,12 +471,10 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
   const [error, setError] = useState(null);
 
   // Drives ONLY the native pull-to-refresh spinner, mirroring OrdersScreen.
-  // The automatic background sync on mount never touches this — it only
-  // flips on when the user physically pulls the list down themselves.
   const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const [search, setSearch] = useState("");
-  const [activeMethod, setActiveMethod] = useState("all"); // 'all' | 'cash' | 'upi' | 'card' — defaults to all
+  const [activeMethod, setActiveMethod] = useState("all"); // 'all' | 'cash' | 'upi' | 'card'
   const [activePaymentId, setActivePaymentId] = useState(
     () => getCachedSync(CACHE_KEYS.payments)?.data?.[0]?.id || null
   );
@@ -428,14 +492,20 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await API.get("/payments", { headers });
       const data = res.data.data || res.data || [];
-      const mapped = data
-        .map(mapPayment)
-        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+      const mapped = data.map(mapPayment).sort((a, b) => {
+        // Newest payment date first
+        const dateCompare = new Date(b.date || 0) - new Date(a.date || 0);
+        if (dateCompare !== 0) return dateCompare;
+
+        // Same payment date → newest created payment first
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      });
+
       setPayments(mapped);
       setActivePaymentId((prev) => prev || (mapped[0] ? mapped[0].id : null));
 
-      // Persist for next time the screen opens — next visit paints
-      // instantly from this instead of showing a blank loader.
+      // Persist for next time the screen opens.
       setCached(CACHE_KEYS.payments, mapped);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load payments. Please try again.");
@@ -444,9 +514,7 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     }
   }, []);
 
-  // Wrapper used ONLY by pull-to-refresh. This is the one place
-  // `pullRefreshing` gets set — the automatic background sync on mount
-  // calls fetchPayments directly and never touches this.
+  // Wrapper used ONLY by pull-to-refresh.
   const handlePullRefresh = useCallback(async () => {
     setPullRefreshing(true);
     try {
@@ -456,17 +524,8 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     }
   }, [fetchPayments]);
 
-  // Mount effect — runs once per mount.
-  //
-  // If the lazy initializer above already found data in the in-memory
-  // cache (screen was visited earlier this session), `payments` is
-  // non-empty on this very first render, so we skip the async disk read
-  // entirely and go straight to a SILENT background refresh — the user
-  // sees their data immediately with zero loading state.
-  //
-  // Only on a genuinely cold start (in-memory cache empty) do we fall back
-  // to the async, disk-backed getCached(), and only then decide whether
-  // the subsequent fetch should be silent or show the full-pane spinner.
+  // Mount effect — runs once per mount (see OrdersScreen for the full
+  // explanation of the cache-first / silent-refresh strategy).
   useEffect(() => {
     let active = true;
 
@@ -487,27 +546,31 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     return () => {
       active = false;
     };
-    // Intentionally only on mount: `payments` is read here only to decide
-    // the very first fetch's silent/loud behavior, not to re-trigger this
-    // effect as it changes afterward.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Totals per method, computed once from the full (unfiltered-by-method) list
-  // so the dropdown always shows true totals regardless of which option is
-  // currently selected. Search text still narrows them.
-  // "all" still includes "other"-bucketed payments even though "other" has
-  // no option of its own — nothing is silently dropped from totals or the list.
+  // List filters: date (listDate) + search. The method dropdown is applied
+  // afterwards so its per-method totals always reflect the selected date
+  // and search text, but not the currently selected method.
   const searchFilteredPayments = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return payments;
-    return payments.filter(
-      (p) =>
+    const selectedDateKey = listDate ? dateKey(listDate) : "";
+
+    return payments.filter((p) => {
+      // Date filter
+      if (selectedDateKey && paymentDateKey(p.date) !== selectedDateKey) {
+        return false;
+      }
+
+      // Search filter
+      if (!q) return true;
+      return (
         (p.receiptNo || "").toLowerCase().includes(q) ||
         (p.invoiceNo || "").toLowerCase().includes(q) ||
         (p.customerName || "").toLowerCase().includes(q)
-    );
-  }, [payments, search]);
+      );
+    });
+  }, [payments, search, listDate]);
 
   const methodTotals = useMemo(() => {
     const totals = { all: { total: 0, count: 0 } };
@@ -526,6 +589,13 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     return searchFilteredPayments.filter((p) => p.method === activeMethod);
   }, [searchFilteredPayments, activeMethod]);
 
+  // If the selected payment gets filtered out, clear the detail pane.
+  useEffect(() => {
+    if (activePaymentId && !visiblePayments.some((p) => p.id === activePaymentId)) {
+      setActivePaymentId(null);
+    }
+  }, [visiblePayments, activePaymentId]);
+
   const groupedPayments = useMemo(() => {
     const groups = {};
     visiblePayments.forEach((p) => {
@@ -535,19 +605,53 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
     return groups;
   }, [visiblePayments]);
 
-const groupLabels = useMemo(
-  () => Object.keys(groupedPayments),
-  [groupedPayments]
-);
+  const groupLabels = useMemo(() => Object.keys(groupedPayments), [groupedPayments]);
 
   const activePayment = payments.find((p) => p.id === activePaymentId) || null;
 
-  // Stable row-select handler, mirrors OrdersScreen's handleSelectOrder —
-  // paired with React.memo on PaymentListRow this keeps row re-renders
-  // scoped to just the previously/now active row instead of the whole list.
   const handleSelectPayment = useCallback((id) => {
     setActivePaymentId(id);
   }, []);
+
+  // ── Daily Payment Summary data ─────────────────────────────────────
+  // Built from the already-loaded `payments` array for `summaryDate`.
+  // Unaffected by the list's date filter, search text or method dropdown.
+  const dailySummaryPayments = useMemo(() => {
+    const key = dateKey(summaryDate);
+    return payments.filter((p) => paymentDateKey(p.date) === key);
+  }, [payments, summaryDate]);
+
+  const dailySummaryTotals = useMemo(() => {
+    const t = {
+      cash: { total: 0, count: 0 },
+      upi: { total: 0, count: 0 },
+      card: { total: 0, count: 0 },
+      other: { total: 0, count: 0 },
+      all: { total: 0, count: 0 },
+    };
+    dailySummaryPayments.forEach((p) => {
+      t[p.method].total += p.amount;
+      t[p.method].count += 1;
+      t.all.total += p.amount;
+      t.all.count += 1;
+    });
+    return t;
+  }, [dailySummaryPayments]);
+
+  // ── Calendar picker handlers ───────────────────────────────────────
+  const openPicker = (target) => {
+    setPickerTarget(target);
+    setPickerMonth((target === "list" ? listDate : summaryDate) || new Date());
+    setPickerVisible(true);
+  };
+
+  const handleSelectPickerDate = (d) => {
+    if (pickerTarget === "list") setListDate(d);
+    else setSummaryDate(d);
+    setPickerVisible(false);
+  };
+
+  const pickerActiveDate = pickerTarget === "list" ? listDate : summaryDate;
 
   return (
     <View style={styles.screen}>
@@ -563,12 +667,52 @@ const groupLabels = useMemo(
         hideHeldCarts
         hideViewHeldCarts
         hideMore
-        rightExtra={<MethodDropdown value={activeMethod} totals={methodTotals} onChange={setActiveMethod} />}
+        rightExtra={
+          <View style={styles.headerRightRow}>
+            <MethodDropdown value={activeMethod} totals={methodTotals} onChange={setActiveMethod} />
+
+            <TouchableOpacity
+              style={styles.dailySummaryTriggerBtn}
+              onPress={() => setDailySummaryVisible((v) => !v)}
+              hitSlop={8}
+            >
+              <MaterialCommunityIcons name="calendar-text-outline" size={18} color={colors.white} />
+              <Text style={styles.dailySummaryTriggerText}>Daily Summary</Text>
+              <MaterialCommunityIcons
+                name={dailySummaryVisible ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={colors.white}
+              />
+            </TouchableOpacity>
+          </View>
+        }
       />
 
       <View style={styles.body}>
         {/* Left pane — filtered list */}
         <View style={styles.listPane}>
+          {/* ── Payment list date filter ── */}
+          <View style={styles.listFilterBar}>
+            <TouchableOpacity
+              style={styles.listFilterChip}
+              onPress={() => openPicker("list")}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="calendar" size={18} color={colors.primary} />
+              <Text style={styles.listFilterText}>
+                {listDate ? formatDateLong(listDate) : "All dates"}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setListDate(listDate ? null : new Date())}
+              hitSlop={8}
+            >
+              <Text style={styles.listFilterAction}>{listDate ? "Show all" : "Today"}</Text>
+            </TouchableOpacity>
+          </View>
+
           {loading && payments.length === 0 ? (
             // First ever load, nothing cached yet — full-pane spinner.
             <View style={styles.emptyList}>
@@ -595,9 +739,6 @@ const groupLabels = useMemo(
                 />
               }
             >
-              {/* If a background refresh fails but we still have cached/
-                  stale data on screen, don't blank the list — just show a
-                  small inline notice above it. */}
               {error ? (
                 <View style={styles.inlineErrorBanner}>
                   <Text style={styles.inlineErrorBannerText} numberOfLines={2}>
@@ -634,6 +775,224 @@ const groupLabels = useMemo(
           <PaymentDetail payment={activePayment} />
         </View>
       </View>
+
+      {/* ── Shared date picker (payment list + daily summary) ── */}
+      <Modal
+        visible={pickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setPickerVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.pickerCard}>
+            <Text style={styles.pickerTitle}>
+              {pickerTarget === "list" ? "Filter payments by date" : "Daily summary date"}
+            </Text>
+
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity
+                hitSlop={8}
+                onPress={() =>
+                  setPickerMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))
+                }
+              >
+                <MaterialCommunityIcons name="chevron-left" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={styles.pickerMonthLabel}>
+                {pickerMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              </Text>
+              <TouchableOpacity
+                hitSlop={8}
+                onPress={() =>
+                  setPickerMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))
+                }
+              >
+                <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.pickerWeekRow}>
+              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+                <Text key={i} style={styles.pickerWeekDay}>{d}</Text>
+              ))}
+            </View>
+
+            <View style={styles.pickerGrid}>
+              {getCalendarCells(pickerMonth).map((cell, idx) => {
+                if (!cell) return <View key={idx} style={styles.pickerCell} />;
+                const isSelected =
+                  !!pickerActiveDate && dateKey(cell) === dateKey(pickerActiveDate);
+                const isToday = dateKey(cell) === dateKey(new Date());
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.pickerCell, isSelected && styles.pickerCellSelected]}
+                    onPress={() => handleSelectPickerDate(cell)}
+                  >
+                    <Text
+                      style={[
+                        styles.pickerCellText,
+                        isToday && styles.pickerCellTextToday,
+                        isSelected && styles.pickerCellTextSelected,
+                      ]}
+                    >
+                      {cell.getDate()}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              style={styles.pickerTodayBtn}
+              onPress={() => handleSelectPickerDate(new Date())}
+            >
+              <Text style={styles.pickerTodayBtnText}>Today</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Daily Payment Summary side panel ── */}
+      {dailySummaryVisible && (
+        <TouchableOpacity
+          style={styles.dailySummaryBackdrop}
+          activeOpacity={1}
+          onPress={() => setDailySummaryVisible(false)}
+        />
+      )}
+
+      <Animated.View
+        pointerEvents={dailySummaryVisible ? "auto" : "none"}
+        style={[
+          styles.dailySummaryPanel,
+          { width: SUMMARY_PANEL_WIDTH, transform: [{ translateX: summaryPanelTranslateX }] },
+        ]}
+      >
+        <SafeAreaView edges={["top", "right", "bottom"]} style={{ flex: 1 }}>
+          <View style={styles.dailySummaryHeaderRow}>
+            <Text style={styles.dailySummaryTitle}>Daily Payment Summary</Text>
+            <TouchableOpacity onPress={() => setDailySummaryVisible(false)} hitSlop={8}>
+              <MaterialCommunityIcons name="close" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.dailySummaryDateRow}>
+            <View style={styles.dailySummaryDateLeft}>
+              <MaterialCommunityIcons name="calendar" size={18} color={colors.primary} />
+              <Text style={styles.dailySummaryDateText}>{formatDateLong(summaryDate)}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.dailySummaryChangeBtn}
+              onPress={() => openPicker("summary")}
+            >
+              <Text style={styles.dailySummaryChangeBtnText}>Change</Text>
+            </TouchableOpacity>
+          </View>
+
+<View style={styles.dailySummaryActionRow}>
+  <TouchableOpacity
+    style={styles.dailySummaryPrintBtn}
+    onPress={() => {}}
+  >
+    <MaterialCommunityIcons
+      name="printer-outline"
+      size={17}
+      color={colors.primary}
+    />
+    <Text style={styles.dailySummaryPrintBtnText}>Print</Text>
+  </TouchableOpacity>
+</View>
+
+          <View style={[styles.dailySummaryBody, { flex: 1 }]}>
+            {dailySummaryPayments.length === 0 ? (
+              <Text style={styles.dailySummaryEmptyText}>No payments found for this date.</Text>
+            ) : (
+              <>
+                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                  {dailySummaryPayments.map((p) => {
+                    const meta = METHOD_META[p.method];
+                    return (
+                      <View key={p.id} style={styles.dailySummaryItemRow}>
+                        <Text style={styles.dailySummaryItemName} numberOfLines={1}>
+                          {p.customerName || "Walk-in Customer"}
+                        </Text>
+                        <View style={styles.dailySummaryItemBottomLine}>
+                          <View style={styles.dailySummaryMethodWrap}>
+                            <MaterialCommunityIcons name={meta.icon} size={13} color={colors.textMuted} />
+                            <Text style={styles.dailySummaryItemSub}>{meta.label}</Text>
+                            <Text style={styles.dailySummaryItemSub} numberOfLines={1}>
+                              {" · "}Inv: {p.invoiceNo}
+                            </Text>
+                          </View>
+                          <Text style={styles.dailySummaryItemAmount}>
+                            {"\u20B9"}{money(p.amount)}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Totals dropdown — closed by default, opens upward from the
+                    bottom of the panel. Neutral colors only. */}
+                <View style={styles.dailySummaryTotalsBox}>
+                  {totalsOpen && (
+                    <View style={styles.totalsDropdownBody}>
+                      {[...METHOD_KEYS, ...(dailySummaryTotals.other.count > 0 ? ["other"] : [])].map((k) => {
+                        const meta = METHOD_META[k];
+                        const t = dailySummaryTotals[k];
+                        return (
+                          <View key={k} style={styles.dailySummaryTotalsRow}>
+                            <View style={styles.dailySummaryTotalsLabelWrap}>
+                              <MaterialCommunityIcons name={meta.icon} size={15} color={colors.textSecondary} />
+                              <Text style={styles.dailySummaryTotalsLabel}>
+                                {meta.label.toUpperCase()}
+                              </Text>
+                              <Text style={styles.dailySummaryTotalsCount}>({t.count})</Text>
+                            </View>
+                            <Text style={styles.dailySummaryTotalsValue}>
+                              {"\u20B9"}{money(t.total)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.totalsDropdownTrigger}
+                    activeOpacity={0.75}
+                    onPress={() => setTotalsOpen((v) => !v)}
+                  >
+                    <View style={styles.dailySummaryTotalsLabelWrap}>
+                      <MaterialCommunityIcons name="wallet-outline" size={18} color={colors.textPrimary} />
+                      <View>
+                        <Text style={styles.dailySummaryGrandLabel}>TOTAL RECEIVED</Text>
+                        <Text style={styles.totalsDropdownSub}>Cash · UPI · Card</Text>
+                      </View>
+                    </View>
+                    <View style={styles.dailySummaryTotalsLabelWrap}>
+                      <Text style={styles.dailySummaryGrandValue}>
+                        {"\u20B9"}{money(dailySummaryTotals.all.total)}
+                      </Text>
+                      <Feather
+                        name={totalsOpen ? "chevron-down" : "chevron-up"}
+                        size={18}
+                        color={colors.textSecondary}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </SafeAreaView>
+      </Animated.View>
     </View>
   );
 }
@@ -641,6 +1000,8 @@ const groupLabels = useMemo(
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.white },
   body: { flex: 1, flexDirection: "row" },
+
+  headerRightRow: { flexDirection: "row", alignItems: "center", gap: 14 },
 
   // ── Method filter dropdown (in Header) ───────────────────────────────
   dropdownWrap: {
@@ -662,8 +1023,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   dropdownTrigger: {
-    // Sits on the dark navy Header, so this needs to be light-on-dark,
-    // not the light-background styling used elsewhere on this screen.
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -715,15 +1074,41 @@ const styles = StyleSheet.create({
     borderRightColor: colors.divider,
     backgroundColor: "#F8FAFC",
   },
-groupLabel: {
-  fontSize: 17,
-  fontWeight: "800",
-  color: colors.textPrimary,
-  letterSpacing: 0.3,
-  paddingHorizontal: spacing.lg,
-  paddingVertical: 10,
-  backgroundColor: "#F1F5F9",
-},
+
+  // ── Payment list date filter bar ──
+  listFilterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  listFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: "#F8FAFC",
+  },
+  listFilterText: { fontSize: 14.5, fontWeight: "700", color: colors.textPrimary },
+  listFilterAction: { fontSize: 13.5, fontWeight: "700", color: colors.primary },
+
+  groupLabel: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    letterSpacing: 0.3,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    backgroundColor: "#F1F5F9",
+  },
   listRow: {
     paddingHorizontal: spacing.lg,
     paddingVertical: 16,
@@ -814,8 +1199,6 @@ groupLabel: {
     marginBottom: spacing.md,
   },
 
-  // Plain label/value rows placed directly on the page (no bordered card
-  // wrapper around them) — separated only by a hairline under each row.
   plainRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -831,4 +1214,229 @@ groupLabel: {
 
   emptyDetail: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
   emptyDetailText: { fontSize: 16, color: colors.textMuted },
+
+  // ── Shared date picker modal ────────────────────────────────────────
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerCard: {
+    width: 320,
+    backgroundColor: colors.white,
+    borderRadius: radii.lg || 16,
+    padding: spacing.lg,
+  },
+  pickerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  pickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  pickerMonthLabel: { fontSize: 15.5, fontWeight: "700", color: colors.textPrimary },
+  pickerWeekRow: { flexDirection: "row", marginBottom: 4 },
+  pickerWeekDay: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  pickerGrid: { flexDirection: "row", flexWrap: "wrap" },
+  pickerCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerCellSelected: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+  },
+  pickerCellText: { fontSize: 14, color: colors.textPrimary },
+  pickerCellTextToday: { fontWeight: "800", color: colors.primary },
+  pickerCellTextSelected: { color: colors.white, fontWeight: "800" },
+  pickerTodayBtn: {
+    marginTop: 12,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  pickerTodayBtnText: { fontSize: 13.5, fontWeight: "700", color: colors.primary },
+
+  // ── Header trigger button ──
+  dailySummaryTriggerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  dailySummaryTriggerText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.white,
+  },
+
+  // ── Daily Payment Summary side panel ────────────────────────────────
+  dailySummaryBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    zIndex: 40,
+  },
+  dailySummaryPanel: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    backgroundColor: colors.white,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.divider,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    zIndex: 50,
+    shadowColor: "#000",
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  dailySummaryHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  dailySummaryTitle: {
+    fontSize: 15.5,
+    fontWeight: "800",
+    color: colors.textPrimary,
+  },
+  dailySummaryDateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  dailySummaryDateLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  dailySummaryDateText: { fontSize: 14.5, fontWeight: "700", color: colors.textPrimary },
+  dailySummaryChangeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.sm || 8,
+    backgroundColor: colors.primarySoft || "#EEF2FF",
+  },
+  dailySummaryChangeBtnText: { fontSize: 12.5, fontWeight: "700", color: colors.primary },
+  dailySummaryBody: {
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  dailySummaryEmptyText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: 16,
+  },
+  dailySummaryItemRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+    gap: 3,
+  },
+  dailySummaryItemName: { fontSize: 13.5, fontWeight: "700", color: colors.textPrimary },
+  dailySummaryItemBottomLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dailySummaryMethodWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flex: 1,
+    paddingRight: 8,
+  },
+  dailySummaryItemSub: { fontSize: 12.5, color: colors.textMuted, fontWeight: "600" },
+  dailySummaryItemAmount: { fontSize: 13.5, fontWeight: "800", color: colors.textPrimary },
+
+  dailySummaryTotalsBox: {
+    marginTop: 10,
+    borderTopWidth: 1.5,
+    borderTopColor: colors.divider,
+  },
+  totalsDropdownBody: {
+    paddingTop: 10,
+    paddingHorizontal: 4,
+    gap: 10,
+  },
+  totalsDropdownTrigger: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: "#F8FAFC",
+  },
+  totalsDropdownSub: { fontSize: 11.5, color: colors.textMuted, marginTop: 1 },
+  dailySummaryTotalsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dailySummaryTotalsLabelWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dailySummaryTotalsLabel: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: colors.textMuted,
+    letterSpacing: 0.4,
+  },
+  dailySummaryTotalsCount: { fontSize: 12, color: colors.textMuted },
+  dailySummaryTotalsValue: { fontSize: 15, fontWeight: "800", color: colors.textPrimary },
+  dailySummaryGrandLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    letterSpacing: 0.4,
+  },
+  dailySummaryGrandValue: { fontSize: 18, fontWeight: "800", color: colors.textPrimary },
+dailySummaryPrintBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  alignSelf: "flex-start",
+  gap: 5,
+  paddingHorizontal: 8,
+  paddingVertical: 6,
+  borderRadius: radii.sm || 7,
+  borderWidth: 1,
+  borderColor: colors.primary,
+},
+    dailySummaryPrintBtnText: { fontSize: 13.5, fontWeight: "700", color: colors.primary },
 });

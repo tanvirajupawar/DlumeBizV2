@@ -1,4 +1,4 @@
-import React, { useState,useRef, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import {
   View,
@@ -12,7 +12,7 @@ import {
   Alert,
   TextInput,
   Share,
-   Animated, 
+  Animated,
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,10 +33,7 @@ import {
   printDailySalesSummary,
 } from "../../services/printer";
 
-
 import { getCached, setCached, getCachedSync } from "../../utils/cache";
-
-
 
 let AsyncStorage = null;
 try {
@@ -65,7 +62,7 @@ const STATUS_COLORS = {
 
 const { SunmiPrinter } = NativeModules;
 
-// ── Daily Sales Summary helpers (new) ──────────────────────────────────
+// ── Date helpers ───────────────────────────────────────────────────────
 
 // Local YYYY-MM-DD key — deliberately NOT toISOString(), so a sale logged
 // late at night in the user's local timezone doesn't get bucketed into
@@ -103,7 +100,6 @@ const getCalendarCells = (monthDate) => {
   return cells;
 };
 
-
 const money = (n) => Number(n || 0).toFixed(2);
 
 const formatDate = (isoDate) => {
@@ -116,21 +112,17 @@ const formatDate = (isoDate) => {
   return `${dd}/${mm}/${yyyy}`;
 };
 
-// Section header for the orders list now shows the order's actual date
-// (DD/MM/YYYY, same as formatDate) instead of TODAY/YESTERDAY/OLDER
-// buckets — e.g. "22/07/2026". Falls back to "No Date" when the order has
-// no usable date.
+// Section header for the orders list shows the order's actual date
+// (DD/MM/YYYY, same as formatDate). Falls back to "No Date" when the order
+// has no usable date.
 const dateGroupFor = (isoDate) => {
   const formatted = formatDate(isoDate);
   return formatted === "-" ? "No Date" : formatted;
 };
 
 const mapInvoice = (inv, returnsBySalesId) => {
-const customer =
-  inv.customer_id ||
-  inv.client_id ||
-  {};
-    const invId = inv._id;
+  const customer = inv.customer_id || inv.client_id || {};
+  const invId = inv._id;
 
   const totalReturn = returnsBySalesId[invId] || 0;
   const totalAmount = Number(inv.total_amount || 0);
@@ -158,7 +150,7 @@ const customer =
 
   const companyName = customer.company_name || "Walk-in";
 
-const items = (inv.items || []).map((d) => {
+  const items = (inv.items || []).map((d) => {
     const prod = d.product_id || {};
     const rate = Number(d.price || d.rate || 0);
     const bags = Number(d.bags || 0);
@@ -173,54 +165,54 @@ const items = (inv.items || []).map((d) => {
     const amount =
       Number(d.amount || d.total) > 0 ? Number(d.amount || d.total) : qty * rate;
 
-  const isCalculatorItem =
-  !d.product_id &&
-  !prod._id &&
-  typeof d.product_name === "string" &&
-  d.product_name.startsWith("Item (");
+    const isCalculatorItem =
+      !d.product_id &&
+      !prod._id &&
+      typeof d.product_name === "string" &&
+      d.product_name.startsWith("Item (");
 
-return {
-  id: d._id || prod._id || `${invId}-${Math.random()}`,
-  product_id: prod._id || d.product_id || "",
+    return {
+      id: d._id || prod._id || `${invId}-${Math.random()}`,
+      product_id: prod._id || d.product_id || "",
 
-  isCalculatorItem,
+      isCalculatorItem,
 
-  name: isCalculatorItem
-    ? `${qty} × ₹${rate}`
-    : prod.product ||
-      prod.name ||
-      d.product_name ||
-      d.item_name ||
-      "—",
+      name: isCalculatorItem
+        ? `${qty} × ₹${rate}`
+        : prod.product ||
+          prod.name ||
+          d.product_name ||
+          d.item_name ||
+          "—",
 
-  product_name: isCalculatorItem
-    ? ""
-    : prod.product ||
-      prod.name ||
-      d.product_name ||
-      d.item_name ||
-      "",
+      product_name: isCalculatorItem
+        ? ""
+        : prod.product ||
+          prod.name ||
+          d.product_name ||
+          d.item_name ||
+          "",
 
-  type: isCalculatorItem
-    ? ""
-    : prod.type || prod.item_type || d.item_type || d.type || "",
+      type: isCalculatorItem
+        ? ""
+        : prod.type || prod.item_type || d.item_type || d.type || "",
 
-  size: prod.size || d.size || d.Size || "",
-  hsn: d.hsn || prod.hsn || "",
+      size: prod.size || d.size || d.Size || "",
+      hsn: d.hsn || prod.hsn || "",
 
-description:
-  d.description ||
-  d.desc ||
-  prod.description ||
-  prod.desc ||
-  "",
+      description:
+        d.description ||
+        d.desc ||
+        prod.description ||
+        prod.desc ||
+        "",
 
-  bags,
-  units,
-  qty,
-  rate,
-  amount,
-};
+      bags,
+      units,
+      qty,
+      rate,
+      amount,
+    };
   });
 
   const subTotal = items.reduce((s, it) => s + it.amount, 0);
@@ -231,13 +223,13 @@ description:
   return {
     id: invId,
     invoiceNo: inv.invoice_no || "—",
-customer_id:
-  customer._id ||
-  inv.customer_id?._id ||
-  inv.customer_id ||
-  inv.client_id ||
-  "",
-      customer: customerName,
+    customer_id:
+      customer._id ||
+      inv.customer_id?._id ||
+      inv.customer_id ||
+      inv.client_id ||
+      "",
+    customer: customerName,
     companyName,
     total: grandTotal,
     status,
@@ -276,14 +268,15 @@ const mapPayment = (col) => ({
   allocations: col.allocations || [],
   date: col.date || col.payment_date || col.createdOn || "",
   method: col.payment_method || "-",
-  remarks: col.remarks || col.note || "-",
+  remarks:
+    col.remarks ||
+    col.remark ||
+    col.note ||
+    col.payment_remarks ||
+    "",
   amount: Number(col.amount || 0),
 });
 
-// NOTE: `product_id` is now carried through on each return line item so we
-// can reliably match a refund record back to a specific order item (falling
-// back to product name when a product_id isn't available). This is what
-// lets us figure out how much of an item has *already* been refunded.
 const mapReturnRecord = (ret) => ({
   id: ret._id,
   returnNo: ret.return_no || "-",
@@ -335,7 +328,6 @@ const buildReceiptFromOrder = (order, company, user) => ({
   companyPhone: company?.mobile || "",
   companyEmail: company?.email || user?.email || "",
 
-
   invoiceNo: order.invoiceNo,
   invoiceDate: order.date || new Date().toISOString(),
 
@@ -355,42 +347,41 @@ const buildReceiptFromOrder = (order, company, user) => ({
   isGSTUser: false,
   isIntraState: true,
 
-items: order.items.map((it) => ({
-  // Keep calculator/normal distinction for Sunmi + Bluetooth
-  isCalculatorItem: !!it.isCalculatorItem,
+  items: order.items.map((it) => ({
+    // Keep calculator/normal distinction for Sunmi + Bluetooth
+    isCalculatorItem: !!it.isCalculatorItem,
 
-  // Calculator item keeps its existing display.
-  // Normal product uses the actual product name.
-  name: it.isCalculatorItem
-    ? it.name
-    : (
-        it.product_name ||
-        it.name ||
-        it.product ||
-        "Item"
-      ),
+    // Calculator item keeps its existing display.
+    // Normal product uses the actual product name.
+    name: it.isCalculatorItem
+      ? it.name
+      : (
+          it.product_name ||
+          it.name ||
+          it.product ||
+          "Item"
+        ),
 
-  // Preserve actual product name separately
-  product_name:
-    it.product_name ||
-    it.name ||
-    it.product ||
-    "",
+    // Preserve actual product name separately
+    product_name:
+      it.product_name ||
+      it.name ||
+      it.product ||
+      "",
 
-  qty: it.qty,
-  price: it.rate,
-  rate: it.rate,
-  amount: it.amount,
+    qty: it.qty,
+    price: it.rate,
+    rate: it.rate,
+    amount: it.amount,
 
-  description: it.description || "",
-  desc: it.description || "",
+    description: it.description || "",
+    desc: it.description || "",
 
-  discount: 0,
-  gstRate: 0,
-  hsn: it.hsn || "",
-})),
+    discount: 0,
+    gstRate: 0,
+    hsn: it.hsn || "",
+  })),
 });
-
 
 const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress }) {
   const statusColor = STATUS_COLORS[order.status] || colors.textMuted;
@@ -438,31 +429,32 @@ function MoreMenuModal({
   onRefund,
   onDelete,
   hideRefund = false,
-}) {  return (
+}) {
+  return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.moreMenuOverlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.moreMenuSheet}>
           <View style={styles.moreMenuHandle} />
 
-        {!hideRefund && (
-  <TouchableOpacity
-    style={styles.moreMenuItem}
-    onPress={() => {
-      onClose();
-      onRefund();
-    }}
-  >
-    <View style={styles.moreMenuIconWrap}>
-      <MaterialCommunityIcons
-        name="cash-refund"
-        size={22}
-        color={colors.textPrimary}
-      />
-    </View>
+          {!hideRefund && (
+            <TouchableOpacity
+              style={styles.moreMenuItem}
+              onPress={() => {
+                onClose();
+                onRefund();
+              }}
+            >
+              <View style={styles.moreMenuIconWrap}>
+                <MaterialCommunityIcons
+                  name="cash-refund"
+                  size={22}
+                  color={colors.textPrimary}
+                />
+              </View>
 
-    <Text style={styles.moreMenuItemText}>Refund</Text>
-  </TouchableOpacity>
-)}
+              <Text style={styles.moreMenuItemText}>Refund</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={styles.moreMenuItem}
@@ -488,12 +480,12 @@ function ItemTable({ items }) {
       <View style={styles.itHeader}>
         <Text style={[styles.itHeaderCell, styles.itColItem]}>Item</Text>
         <Text style={[styles.itHeaderCell, styles.itColDesc]}>Desc</Text>
-      <Text style={[styles.itHeaderCell, styles.itColSize]}>Size</Text>
-{/* Hidden per request — keep for later, just don't render.
-<Text style={[styles.itHeaderCell, styles.itColNum]}>Bags</Text>
-<Text style={[styles.itHeaderCell, styles.itColNum]}>Units</Text>
-*/}
-<Text style={[styles.itHeaderCell, styles.itColNum]}>Qty</Text>
+        <Text style={[styles.itHeaderCell, styles.itColSize]}>Size</Text>
+        {/* Hidden per request — keep for later, just don't render.
+        <Text style={[styles.itHeaderCell, styles.itColNum]}>Bags</Text>
+        <Text style={[styles.itHeaderCell, styles.itColNum]}>Units</Text>
+        */}
+        <Text style={[styles.itHeaderCell, styles.itColNum]}>Qty</Text>
         <Text style={[styles.itHeaderCell, styles.itColPrice]}>Price</Text>
         <Text style={[styles.itHeaderCell, styles.itColTotal]}>Total</Text>
       </View>
@@ -512,39 +504,39 @@ function ItemTable({ items }) {
               idx === items.length - 1 && styles.itRowLast,
             ]}
           >
-         <View style={styles.itColItem}>
-  <Text style={styles.itItemName} numberOfLines={2}>
-    {item.name}
-  </Text>
+            <View style={styles.itColItem}>
+              <Text style={styles.itItemName} numberOfLines={2}>
+                {item.name}
+              </Text>
 
-  {item.type && !item.isCalculatorItem ? (
-    <Text style={styles.itItemType} numberOfLines={1}>
-      {item.type}
-    </Text>
-  ) : null}
-</View>
+              {item.type && !item.isCalculatorItem ? (
+                <Text style={styles.itItemType} numberOfLines={1}>
+                  {item.type}
+                </Text>
+              ) : null}
+            </View>
 
-         <Text style={[styles.itCell, styles.itColDesc, styles.itMuted]} numberOfLines={2}>
-  {item.description || ""}
-</Text>
+            <Text style={[styles.itCell, styles.itColDesc, styles.itMuted]} numberOfLines={2}>
+              {item.description || ""}
+            </Text>
 
             <Text style={[styles.itCell, styles.itColSize, styles.itMuted]} numberOfLines={1}>
               {item.size || "—"}
             </Text>
 
-        {/* Hidden per request — keep for later, just don't render.
-<Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
-  {item.bags || 1}
-</Text>
+            {/* Hidden per request — keep for later, just don't render.
+            <Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
+              {item.bags || 1}
+            </Text>
 
-<Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
-  {item.units || 1}
-</Text>
-*/}
+            <Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
+              {item.units || 1}
+            </Text>
+            */}
 
-<Text style={[styles.itCell, styles.itColNum, styles.itCenter, styles.itBold]}>
-  {item.qty}
-</Text>
+            <Text style={[styles.itCell, styles.itColNum, styles.itCenter, styles.itBold]}>
+              {item.qty}
+            </Text>
 
             <Text style={[styles.itCell, styles.itColPrice, styles.itRight, styles.itMuted]}>
               {"\u20B9"}{money(item.rate)}
@@ -559,8 +551,6 @@ function ItemTable({ items }) {
     </View>
   );
 }
-
-
 
 const REFUND_MAX_WIDTH = 720;
 
@@ -655,7 +645,7 @@ function RefundItemsModal({ visible, order, returns, onClose, onConfirm, submitt
     0
   );
 
-const handleConfirm = () => {
+  const handleConfirm = () => {
     if (selectedItems.length === 0) {
       Alert.alert("Select items", "Choose at least one item and quantity to refund.");
       return;
@@ -809,8 +799,6 @@ const handleConfirm = () => {
               );
             })}
           </ScrollView>
-
-
         </View>
 
         {/* Footer sits in its own bottom-safe-area wrapper so the Confirm
@@ -844,9 +832,6 @@ const handleConfirm = () => {
   );
 }
 
-
-
-
 // ─── Order detail panel ───────────────────────────────────────────────────
 
 function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryPayments, returns, onRefundSuccess }) {
@@ -857,7 +842,6 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
   const [printing, setPrinting] = useState(false);
   const { company, user } = useAuth();
 
-
   if (!order) {
     return (
       <View style={styles.emptyDetail}>
@@ -867,32 +851,32 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
     );
   }
 
-const orderPayments = (payments || [])
-  .filter((p) => {
-    if (!order) return false;
+  const orderPayments = (payments || [])
+    .filter((p) => {
+      if (!order) return false;
 
-    return (p.allocations || []).some(
-      (allocation) =>
-        String(allocation.sale_order_id || "") === String(order.id) ||
-        (
-          allocation.invoice_no &&
-          order.invoiceNo &&
-          allocation.invoice_no === order.invoiceNo
-        )
+      return (p.allocations || []).some(
+        (allocation) =>
+          String(allocation.sale_order_id || "") === String(order.id) ||
+          (
+            allocation.invoice_no &&
+            order.invoiceNo &&
+            allocation.invoice_no === order.invoiceNo
+          )
+      );
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.date || 0) - new Date(a.date || 0)
     );
-  })
-  .sort(
-    (a, b) =>
-      new Date(b.date || 0) - new Date(a.date || 0)
-  );
 
   const orderReturns = (returns || [])
     .filter((r) => returnBelongsToOrder(r, order))
     .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-    const isCalculatorOrder =
-  order.items?.length > 0 &&
-  order.items.every((item) => item.isCalculatorItem);
+  const isCalculatorOrder =
+    order.items?.length > 0 &&
+    order.items.every((item) => item.isCalculatorItem);
 
   // Has every item on this order already been fully refunded? If so there's
   // nothing left to refund at all, regardless of paid amount.
@@ -911,65 +895,63 @@ const orderPayments = (payments || [])
       return refundedQty >= it.qty;
     });
 
-const handlePrint = () => {
-  if (printing) return;
+  const handlePrint = () => {
+    if (printing) return;
 
-  Alert.alert(
-    "Confirm Print",
-    `Do you want to print invoice ${order.invoiceNo}?`,
-    [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Print",
-        onPress: async () => {
-          setPrinting(true);
+    Alert.alert(
+      "Confirm Print",
+      `Do you want to print invoice ${order.invoiceNo}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Print",
+          onPress: async () => {
+            setPrinting(true);
 
-          try {
-            const receipt = buildReceiptFromOrder(order, company, user);
+            try {
+              const receipt = buildReceiptFromOrder(order, company, user);
 
-            console.log(
-              "ORDERS SCREEN RECEIPT:",
-              JSON.stringify(receipt, null, 2)
-            );
+              console.log(
+                "ORDERS SCREEN RECEIPT:",
+                JSON.stringify(receipt, null, 2)
+              );
 
-            const outcome = await printReceipt(receipt);
+              const outcome = await printReceipt(receipt);
 
-            if (!outcome?.success) {
+              if (!outcome?.success) {
+                Alert.alert(
+                  "Print Failed",
+                  outcome?.error?.message ||
+                    "Unable to print this invoice."
+                );
+              }
+            } catch (err) {
               Alert.alert(
                 "Print Failed",
-                outcome?.error?.message ||
+                err?.message ||
                   "Unable to print this invoice."
               );
+            } finally {
+              setPrinting(false);
             }
-          } catch (err) {
-            Alert.alert(
-              "Print Failed",
-              err?.message ||
-                "Unable to print this invoice."
-            );
-          } finally {
-            setPrinting(false);
-          }
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
 
+  const handleShare = async () => {
+    try {
+      const receipt = buildReceiptFromOrder(order, company, user);
+      const isNarrow = receipt.receipt_size === "58mm";
+      const pageWidthMm = isNarrow ? 58 : 80;
 
-
-const handleShare = async () => {
-  try {
-   const receipt = buildReceiptFromOrder(order, company, user);
-    const isNarrow = receipt.receipt_size === "58mm";
-    const pageWidthMm = isNarrow ? 58 : 80;
-
-    const itemsRows = receipt.items
-      .map(
-        (it) => `
+      const itemsRows = receipt.items
+        .map(
+          (it) => `
         <tr>
           <td class="name" colspan="4">${it.name}</td>
         </tr>
@@ -978,10 +960,10 @@ const handleShare = async () => {
           <td class="amt" colspan="3">${"\u20B9"}${money(it.amount)}</td>
         </tr>
       `
-      )
-      .join("");
+        )
+        .join("");
 
-    const html = `
+      const html = `
       <html>
       <head>
         <meta charset="utf-8" />
@@ -1083,12 +1065,12 @@ const handleShare = async () => {
       </html>
     `;
 
-    const { uri } = await Print.printToFileAsync({ html });
-    await Sharing.shareAsync(uri);
-  } catch (err) {
-    Alert.alert("Share Failed", err.message);
-  }
-};
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri);
+    } catch (err) {
+      Alert.alert("Share Failed", err.message);
+    }
+  };
 
   const handleGenerateInvoice = () =>
     Alert.alert("Generate Invoice", `Generate invoice for ${order.invoiceNo} (coming soon).`);
@@ -1133,87 +1115,88 @@ const handleShare = async () => {
     }
   };
 
-const handleDelete = () => {
-  Alert.alert(
-    "Delete Invoice",
-    `Are you sure you want to delete ${order.invoiceNo}?`,
-    [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const token = await getToken();
-            const headers = token
-              ? { Authorization: `Bearer ${token}` }
-              : {};
-
-            await API.delete(`/sales/${order.id}`, {
-              headers,
-            });
-
-            Alert.alert("Success", "Invoice deleted successfully.");
-
-            onRefundSuccess?.(); // Refresh orders list
-          } catch (err) {
-            Alert.alert(
-              "Delete Failed",
-              err?.response?.data?.message || "Unable to delete invoice."
-            );
-          }
+  const handleDelete = () => {
+    Alert.alert(
+      "Delete Invoice",
+      `Are you sure you want to delete ${order.invoiceNo}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
         },
-      },
-    ]
-  );
-};
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const token = await getToken();
+              const headers = token
+                ? { Authorization: `Bearer ${token}` }
+                : {};
+
+              await API.delete(`/sales/${order.id}`, {
+                headers,
+              });
+
+              Alert.alert("Success", "Invoice deleted successfully.");
+
+              onRefundSuccess?.(); // Refresh orders list
+            } catch (err) {
+              Alert.alert(
+                "Delete Failed",
+                err?.response?.data?.message || "Unable to delete invoice."
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.detailWrap}>
       {/* Tabs */}
       <View style={styles.tabRow}>
-<TouchableOpacity
-  style={[
-    styles.tabBtn,
-    tab === "overview" && styles.tabBtnActive,
-  ]}
-  onPress={() => setTab("overview")}
->
-            <Text style={[styles.tabText, tab === "overview" && styles.tabTextActive]}>
+        <TouchableOpacity
+          style={[
+            styles.tabBtn,
+            tab === "overview" && styles.tabBtnActive,
+          ]}
+          onPress={() => setTab("overview")}
+        >
+          <Text style={[styles.tabText, tab === "overview" && styles.tabTextActive]}>
             Overview
           </Text>
         </TouchableOpacity>
-     <TouchableOpacity
-  style={[
-    styles.tabBtn,
-    tab === "payment-recieved" && styles.tabBtnActive,
-  ]}
-  onPress={() => setTab("payment-recieved")}
->
+        <TouchableOpacity
+          style={[
+            styles.tabBtn,
+            tab === "payment-recieved" && styles.tabBtnActive,
+          ]}
+          onPress={() => setTab("payment-recieved")}
+        >
           <Text style={[styles.tabText, tab === "payment-recieved" && styles.tabTextActive]}>
             Payment Received
           </Text>
         </TouchableOpacity>
-{!isCalculatorOrder && (
-  <TouchableOpacity
-    style={[
-      styles.tabBtn,
-      tab === "refunds" && styles.tabBtnActive,
-    ]}
-    onPress={() => setTab("refunds")}
-  >
-    <Text
-      style={[
-        styles.tabText,
-        tab === "refunds" && styles.tabTextActive,
-      ]}
-    >
-      Refunds{orderReturns.length > 0 ? ` (${orderReturns.length})` : ""}
-    </Text>
-  </TouchableOpacity>
-)}
+        {!isCalculatorOrder && (
+          <TouchableOpacity
+            style={[
+              styles.tabBtn,
+              tab === "refunds" && styles.tabBtnActive,
+            ]}
+            onPress={() => setTab("refunds")}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                tab === "refunds" && styles.tabTextActive,
+              ]}
+            >
+              Refunds{orderReturns.length > 0 ? ` (${orderReturns.length})` : ""}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -1306,121 +1289,118 @@ const handleDelete = () => {
               </View>
             </View>
           </>
-) : tab === "payment-recieved" ? (
-  <View style={styles.paymentsWrap}>
-    {paymentsLoading ? (
-      <View style={styles.paymentsLoading}>
-        <ActivityIndicator size="small" color={colors.primary} />
-        <Text style={styles.paymentsLoadingText}>Loading payments…</Text>
-      </View>
-    ) : paymentsError ? (
-      <View style={styles.paymentsLoading}>
-        <Text style={styles.paymentsErrorText}>{paymentsError}</Text>
-        <TouchableOpacity style={styles.retryBtnSmall} onPress={onRetryPayments}>
-          <Text style={styles.retryBtnSmallText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
-    ) : orderPayments.length === 0 ? (
-      <View style={styles.invoicePlaceholder}>
-        <MaterialCommunityIcons name="cash-remove" size={48} color={colors.textMuted} />
-        <Text style={styles.invoicePlaceholderText}>No payments recorded.</Text>
-      </View>
-    ) : (
-      <View>
-        {orderPayments.map((p, idx) => (
-          <View
-            key={p.id}
-            style={[
-              styles.entryRow,
-              idx === orderPayments.length - 1 && styles.entryRowLast,
-            ]}
-          >
-            <View style={styles.entryTopLine}>
-              <Text style={styles.entryDate}>{formatDate(p.date)}</Text>
-            <Text style={styles.entryAmount}>
-  {"\u20B9"}
-  {money(
-    (
-      p.allocations || []
-    )
-      .filter(
-        (allocation) =>
-          String(allocation.sale_order_id || "") === String(order.id) ||
-          (
-            allocation.invoice_no &&
-            order.invoiceNo &&
-            allocation.invoice_no === order.invoiceNo
-          )
-      )
-      .reduce(
-        (sum, allocation) =>
-          sum + Number(allocation.amount || 0),
-        0
-      )
-  )}
-</Text>
-            </View>
-            <View style={styles.entryBottomLine}>
-              <Text style={styles.entrySubLeft} numberOfLines={1}>
-                Ref. No: {p.receiptNo}
-              </Text>
-              <Text style={styles.entrySubRight}>{p.method}</Text>
-            </View>
-            {p.remarks && p.remarks !== "-" ? (
-              <Text style={styles.itemDescription}>{p.remarks}</Text>
-            ) : null}
+        ) : tab === "payment-recieved" ? (
+          <View style={styles.paymentsWrap}>
+            {paymentsLoading ? (
+              <View style={styles.paymentsLoading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.paymentsLoadingText}>Loading payments…</Text>
+              </View>
+            ) : paymentsError ? (
+              <View style={styles.paymentsLoading}>
+                <Text style={styles.paymentsErrorText}>{paymentsError}</Text>
+                <TouchableOpacity style={styles.retryBtnSmall} onPress={onRetryPayments}>
+                  <Text style={styles.retryBtnSmallText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            ) : orderPayments.length === 0 ? (
+              <View style={styles.invoicePlaceholder}>
+                <MaterialCommunityIcons name="cash-remove" size={48} color={colors.textMuted} />
+                <Text style={styles.invoicePlaceholderText}>No payments recorded.</Text>
+              </View>
+            ) : (
+              <View>
+                {orderPayments.map((p, idx) => (
+                  <View
+                    key={p.id}
+                    style={[
+                      styles.entryRow,
+                      idx === orderPayments.length - 1 && styles.entryRowLast,
+                    ]}
+                  >
+                    <View style={styles.entryTopLine}>
+                      <Text style={styles.entryDate}>{formatDate(p.date)}</Text>
+                      <Text style={styles.entryAmount}>
+                        {"\u20B9"}
+                        {money(
+                          (p.allocations || [])
+                            .filter(
+                              (allocation) =>
+                                String(allocation.sale_order_id || "") === String(order.id) ||
+                                (
+                                  allocation.invoice_no &&
+                                  order.invoiceNo &&
+                                  allocation.invoice_no === order.invoiceNo
+                                )
+                            )
+                            .reduce(
+                              (sum, allocation) =>
+                                sum + Number(allocation.amount || 0),
+                              0
+                            )
+                        )}
+                      </Text>
+                    </View>
+                    <View style={styles.entryBottomLine}>
+                      <Text style={styles.entrySubLeft} numberOfLines={1}>
+                        Ref. No: {p.receiptNo}
+                      </Text>
+                      <Text style={styles.entrySubRight}>{p.method}</Text>
+                    </View>
+                    {p.remarks && p.remarks !== "-" ? (
+                      <Text style={styles.itemDescription}>{p.remarks}</Text>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
-        ))}
-      </View>
-    )}
-  </View>
-) : (
-       <View style={styles.paymentsWrap}>
-    {orderReturns.length === 0 ? (
-      <View style={styles.invoicePlaceholder}>
-        <MaterialCommunityIcons name="cash-refund" size={48} color={colors.textMuted} />
-        <Text style={styles.invoicePlaceholderText}>No refunds recorded.</Text>
-      </View>
-    ) : (
-      orderReturns.map((ret, idx) => (
-        <View
-          key={ret.id}
-          style={[
-            styles.entryRow,
-            idx === orderReturns.length - 1 && styles.entryRowLast,
-          ]}
-        >
-          <View style={styles.entryTopLine}>
-            <Text style={styles.entryDate}>{formatDate(ret.date)}</Text>
-            <Text style={[styles.entryAmount, { color: "#DC2626" }]}>
-              {"\u2212\u20B9"}{money(ret.total)}
-            </Text>
-          </View>
-          <View style={styles.entryBottomLine}>
-            <Text style={styles.entrySubLeft} numberOfLines={1}>
-              Return No: {ret.returnNo}
-            </Text>
-          </View>
-          {ret.reason ? (
-            <Text style={styles.itemDescription}>{ret.reason}</Text>
-          ) : null}
+        ) : (
+          <View style={styles.paymentsWrap}>
+            {orderReturns.length === 0 ? (
+              <View style={styles.invoicePlaceholder}>
+                <MaterialCommunityIcons name="cash-refund" size={48} color={colors.textMuted} />
+                <Text style={styles.invoicePlaceholderText}>No refunds recorded.</Text>
+              </View>
+            ) : (
+              orderReturns.map((ret, idx) => (
+                <View
+                  key={ret.id}
+                  style={[
+                    styles.entryRow,
+                    idx === orderReturns.length - 1 && styles.entryRowLast,
+                  ]}
+                >
+                  <View style={styles.entryTopLine}>
+                    <Text style={styles.entryDate}>{formatDate(ret.date)}</Text>
+                    <Text style={[styles.entryAmount, { color: "#DC2626" }]}>
+                      {"\u2212\u20B9"}{money(ret.total)}
+                    </Text>
+                  </View>
+                  <View style={styles.entryBottomLine}>
+                    <Text style={styles.entrySubLeft} numberOfLines={1}>
+                      Return No: {ret.returnNo}
+                    </Text>
+                  </View>
+                  {ret.reason ? (
+                    <Text style={styles.itemDescription}>{ret.reason}</Text>
+                  ) : null}
 
-          {ret.details.map((d) => (
-            <View key={d.id} style={styles.refundHistoryLine}>
-              <Text style={styles.refundHistoryLineName} numberOfLines={1}>
-                {d.name} × {d.qty}
-              </Text>
-              <Text style={styles.refundHistoryLineAmount}>
-                {"\u20B9"}{money(d.amount)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ))
-    )}
-  </View>
-)}
-        
+                  {ret.details.map((d) => (
+                    <View key={d.id} style={styles.refundHistoryLine}>
+                      <Text style={styles.refundHistoryLineName} numberOfLines={1}>
+                        {d.name} × {d.qty}
+                      </Text>
+                      <Text style={styles.refundHistoryLineAmount}>
+                        {"\u20B9"}{money(d.amount)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Footer */}
@@ -1445,13 +1425,13 @@ const handleDelete = () => {
         </TouchableOpacity>
       </View>
 
-  <MoreMenuModal
-  visible={moreMenuVisible}
-  onClose={() => setMoreMenuVisible(false)}
-  onRefund={handleOpenRefundModal}
-  onDelete={handleDelete}
-  hideRefund={isCalculatorOrder}
-/>
+      <MoreMenuModal
+        visible={moreMenuVisible}
+        onClose={() => setMoreMenuVisible(false)}
+        onRefund={handleOpenRefundModal}
+        onDelete={handleDelete}
+        hideRefund={isCalculatorOrder}
+      />
 
       <RefundItemsModal
         visible={refundModalVisible}
@@ -1483,29 +1463,36 @@ const CACHE_KEYS = {
 const PAGE_SIZE = 40;
 
 export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {} }) {
+  // ── Order list date filter (null = show all dates) ─────────────────
+  // Completely independent from the Daily Sales Summary date below.
+  const [listDate, setListDate] = useState(() => new Date());
 
-// ── Daily Sales Summary ─────────────────────────────────────────
-const [summaryDate, setSummaryDate] = useState(() => new Date());
-const [summaryPickerVisible, setSummaryPickerVisible] = useState(false);
-const [summaryPickerMonth, setSummaryPickerMonth] = useState(() => new Date());
-const [dailySummaryVisible, setDailySummaryVisible] = useState(false);
+  // ── Daily Sales Summary date (independent of the order list) ───────
+  const [summaryDate, setSummaryDate] = useState(() => new Date());
+  const [dailySummaryVisible, setDailySummaryVisible] = useState(false);
 
-// ── Side panel animation (new) ────────────────────────────────
-const SUMMARY_PANEL_WIDTH = 380;
-const summaryPanelAnim = useRef(new Animated.Value(0)).current; // 0 = hidden, 1 = shown
+  // ── Shared calendar popup ──────────────────────────────────────────
+  // pickerTarget decides which filter the popup edits: "list" | "summary"
+  const [pickerTarget, setPickerTarget] = useState("list");
+  const [summaryPickerVisible, setSummaryPickerVisible] = useState(false);
+  const [summaryPickerMonth, setSummaryPickerMonth] = useState(() => new Date());
 
-useEffect(() => {
-  Animated.timing(summaryPanelAnim, {
-    toValue: dailySummaryVisible ? 1 : 0,
-    duration: 250,
-    useNativeDriver: true,
-  }).start();
-}, [dailySummaryVisible]);
+  // ── Side panel animation ───────────────────────────────────────────
+  const SUMMARY_PANEL_WIDTH = 380;
+  const summaryPanelAnim = useRef(new Animated.Value(0)).current; // 0 = hidden, 1 = shown
 
-const summaryPanelTranslateX = summaryPanelAnim.interpolate({
-  inputRange: [0, 1],
-  outputRange: [SUMMARY_PANEL_WIDTH, 0],
-});
+  useEffect(() => {
+    Animated.timing(summaryPanelAnim, {
+      toValue: dailySummaryVisible ? 1 : 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [dailySummaryVisible]);
+
+  const summaryPanelTranslateX = summaryPanelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [SUMMARY_PANEL_WIDTH, 0],
+  });
 
   const [orders, setOrders] = useState(
     () => getCachedSync(CACHE_KEYS.orders)?.data?.orders || []
@@ -1541,7 +1528,7 @@ const summaryPanelTranslateX = summaryPanelAnim.interpolate({
   // Grows as the user scrolls to the end of the list (see handleLoadMore).
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-const searchInputRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   // `silent` = true means "I already have something on screen (from cache
   // or a previous fetch) — refresh quietly without flashing the big
@@ -1556,8 +1543,8 @@ const searchInputRef = useRef(null);
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const salesRes = await API.get("/sales", { headers });
 
-const salesData = salesRes.data.data || salesRes.data || [];
-const returnsData = [];
+      const salesData = salesRes.data.data || salesRes.data || [];
+      const returnsData = [];
       const mappedReturns = returnsData.map(mapReturnRecord);
       const returnsBySalesId = {};
       returnsData.forEach((ret) => {
@@ -1672,28 +1659,41 @@ const returnsData = [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-const filteredOrders = useMemo(() => {
-  const q = search.trim().toLowerCase();
+  // Order list filter — uses `listDate` (NOT summaryDate). When listDate is
+  // null, all dates are shown.
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const selectedDateKey = listDate ? dateKey(listDate) : "";
 
-  // IMPORTANT:
-  // The Daily Sales Summary date must NOT filter the Orders list.
-  // Orders are filtered only by the search text.
-  if (!q) return orders;
+    return orders.filter((o) => {
+      // Date filter
+      if (selectedDateKey && dateKey(o.date) !== selectedDateKey) {
+        return false;
+      }
 
-  return orders.filter((o) => {
-    return (
-      (o.invoiceNo || "").toLowerCase().includes(q) ||
-      (o.customer || "").toLowerCase().includes(q) ||
-      (o.companyName || "").toLowerCase().includes(q)
-    );
-  });
-}, [orders, search]);
+      // Search filter
+      if (!q) return true;
 
+      return (
+        (o.invoiceNo || "").toLowerCase().includes(q) ||
+        (o.customer || "").toLowerCase().includes(q) ||
+        (o.companyName || "").toLowerCase().includes(q)
+      );
+    });
+  }, [orders, search, listDate]);
 
-useEffect(() => {
-  setVisibleCount(PAGE_SIZE);
-}, [search]);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [search, listDate]);
 
+  useEffect(() => {
+    if (
+      activeOrderId &&
+      !filteredOrders.some((o) => o.id === activeOrderId)
+    ) {
+      setActiveOrderId(null);
+    }
+  }, [filteredOrders, activeOrderId]);
 
   const pagedOrders = useMemo(
     () => filteredOrders.slice(0, visibleCount),
@@ -1759,190 +1759,196 @@ useEffect(() => {
     []
   );
 
+  // Item-wise (not invoice-wise) rows for the selected SUMMARY date, built
+  // purely from the already-loaded `orders` array — no second data source.
+  // Uses `summaryDate`, so it is unaffected by the order list's filter.
+  const dailySummaryItems = useMemo(() => {
+    const key = dateKey(summaryDate);
+    const rows = [];
 
+    orders.forEach((order) => {
+      if (dateKey(order.date) !== key) return;
 
-  // Item-wise (not invoice-wise) rows for the selected date, built purely
-// from the already-loaded `orders` array — no second data source.
-const dailySummaryItems = useMemo(() => {
-  const key = dateKey(summaryDate);
-  const rows = [];
+      (order.items || []).forEach((it) => {
+        const qty = Number(it.qty || 0);
+        const rate = Number(it.rate || 0);
+        const amount = Number(it.amount) || qty * rate;
 
-  orders.forEach((order) => {
-    if (dateKey(order.date) !== key) return;
+        rows.push({
+          id: `${order.id}-${it.id}`,
 
-    (order.items || []).forEach((it) => {
-      const qty = Number(it.qty || 0);
-      const rate = Number(it.rate || 0);
-      const amount = Number(it.amount) || qty * rate;
+          // IMPORTANT:
+          // Send this to Sunmi so it knows whether this is
+          // a calculator item or a normal product.
+          isCalculatorItem: !!it.isCalculatorItem,
 
-      rows.push({
-        id: `${order.id}-${it.id}`,
+          // Keep the display name
+          name: it.name,
 
-        // IMPORTANT:
-        // Send this to Sunmi so it knows whether this is
-        // a calculator item or a normal product.
-        isCalculatorItem: !!it.isCalculatorItem,
+          // Keep the actual product name separately
+          product_name:
+            it.product_name ||
+            it.name ||
+            it.product ||
+            "",
 
-        // Keep the display name
-        name: it.name,
-
-        // Keep the actual product name separately
-        product_name:
-          it.product_name ||
-          it.name ||
-          it.product ||
-          "",
-
-        qty,
-        rate,
-        amount,
+          qty,
+          rate,
+          amount,
+        });
       });
     });
-  });
 
-  return rows;
-}, [orders, summaryDate]);
+    return rows;
+  }, [orders, summaryDate]);
 
-const dailySummaryTotals = useMemo(
-  () =>
-    dailySummaryItems.reduce(
-      (acc, it) => {
-        acc.totalItems += it.qty;
-        acc.totalSales += it.amount;
-        return acc;
-      },
-      { totalItems: 0, totalSales: 0 }
-    ),
-  [dailySummaryItems]
-);
+  const dailySummaryTotals = useMemo(
+    () =>
+      dailySummaryItems.reduce(
+        (acc, it) => {
+          acc.totalItems += it.qty;
+          acc.totalSales += it.amount;
+          return acc;
+        },
+        { totalItems: 0, totalSales: 0 }
+      ),
+    [dailySummaryItems]
+  );
 
-const handlePrintDailySummary = () => {
-  if (dailySummaryItems.length === 0) {
+  const handlePrintDailySummary = () => {
+    if (dailySummaryItems.length === 0) {
+      Alert.alert(
+        "No Sales",
+        "There are no sales to print for this date."
+      );
+      return;
+    }
+
     Alert.alert(
-      "No Sales",
-      "There are no sales to print for this date."
-    );
-    return;
-  }
+      "Confirm Print",
+      `Print Daily Sales Summary for ${formatDateLong(summaryDate)}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Print",
+          onPress: async () => {
+            try {
+              console.log(
+                "========== PRINT DAILY SALES SUMMARY =========="
+              );
 
-  Alert.alert(
-    "Confirm Print",
-    `Print Daily Sales Summary for ${formatDateLong(summaryDate)}?`,
-    [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Print",
-        onPress: async () => {
-          try {
-            console.log(
-              "========== PRINT DAILY SALES SUMMARY =========="
-            );
+              console.log("DATE:", dateKey(summaryDate));
+              console.log("ITEMS:", dailySummaryItems);
+              console.log("TOTALS:", dailySummaryTotals);
 
-            console.log(
-              "DATE:",
-              dateKey(summaryDate)
-            );
+              const result = await printDailySalesSummary({
+                date: dateKey(summaryDate),
+                items: dailySummaryItems,
+                totalItems: dailySummaryTotals.totalItems,
+                totalSales: dailySummaryTotals.totalSales,
+              });
 
-            console.log(
-              "ITEMS:",
-              dailySummaryItems
-            );
+              console.log("DAILY SUMMARY PRINT RESULT:", result);
 
-            console.log(
-              "TOTALS:",
-              dailySummaryTotals
-            );
+              if (!result?.success) {
+                Alert.alert(
+                  "Print Failed",
+                  result?.error?.message ||
+                    "Unable to print daily sales summary."
+                );
+              }
+            } catch (error) {
+              console.log("DAILY SUMMARY PRINT ERROR:", error);
 
-            const result = await printDailySalesSummary({
-              date: dateKey(summaryDate),
-              items: dailySummaryItems,
-              totalItems: dailySummaryTotals.totalItems,
-              totalSales: dailySummaryTotals.totalSales,
-            });
-
-            console.log(
-              "DAILY SUMMARY PRINT RESULT:",
-              result
-            );
-
-            if (!result?.success) {
               Alert.alert(
                 "Print Failed",
-                result?.error?.message ||
+                error?.message ||
                   "Unable to print daily sales summary."
               );
             }
-          } catch (error) {
-            console.log(
-              "DAILY SUMMARY PRINT ERROR:",
-              error
-            );
-
-            Alert.alert(
-              "Print Failed",
-              error?.message ||
-                "Unable to print daily sales summary."
-            );
-          }
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
 
-const handleSelectSummaryDate = (d) => {
-  setSummaryDate(d);
-  setSummaryPickerVisible(false);
-};
+  // Opens the shared calendar for either the order list or the summary.
+  const openPicker = (target) => {
+    setPickerTarget(target);
+    setSummaryPickerMonth(
+      (target === "list" ? listDate : summaryDate) || new Date()
+    );
+    setSummaryPickerVisible(true);
+  };
 
-const handleOpenSummaryPicker = () => {
-  setSummaryPickerMonth(summaryDate);
-  setSummaryPickerVisible(true);
-};
+  const handleSelectPickerDate = (d) => {
+    if (pickerTarget === "list") setListDate(d);
+    else setSummaryDate(d);
+    setSummaryPickerVisible(false);
+  };
 
+  // Which date the calendar should highlight as "selected"
+  const pickerActiveDate = pickerTarget === "list" ? listDate : summaryDate;
 
-
-return (
-  <View style={styles.screen}>
-<Header
-  title="Orders"
-  leftWidth={380}
-  onMenuPress={onMenuPress}
-  searchInputRef={searchInputRef}
-  searchValue={search}
-  onSearchChange={setSearch}
-  hideScanner
-  hideCustomer
-  hideHeldCarts
-  hideViewHeldCarts
-  hideMore
-  rightExtra={
-    <TouchableOpacity
-      style={styles.dailySummaryTriggerBtn}
-      onPress={() => setDailySummaryVisible((v) => !v)}
-      hitSlop={8}
-    >
-      <MaterialCommunityIcons name="calendar-text-outline" size={18} color={colors.white} />
-      <Text style={styles.dailySummaryTriggerText}>{formatDateLong(summaryDate)}</Text>
-      <MaterialCommunityIcons
-        name={dailySummaryVisible ? "chevron-up" : "chevron-down"}
-        size={16}
-        color={colors.white}
+  return (
+    <View style={styles.screen}>
+      <Header
+        title="Orders"
+        leftWidth={380}
+        onMenuPress={onMenuPress}
+        searchInputRef={searchInputRef}
+        searchValue={search}
+        onSearchChange={setSearch}
+        hideScanner
+        hideCustomer
+        hideHeldCarts
+        hideViewHeldCarts
+        hideMore
+        rightExtra={
+          <TouchableOpacity
+            style={styles.dailySummaryTriggerBtn}
+            onPress={() => setDailySummaryVisible((v) => !v)}
+            hitSlop={8}
+          >
+            <MaterialCommunityIcons name="calendar-text-outline" size={18} color={colors.white} />
+            <Text style={styles.dailySummaryTriggerText}>Daily Summary</Text>
+            <MaterialCommunityIcons
+              name={dailySummaryVisible ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.white}
+            />
+          </TouchableOpacity>
+        }
       />
-    </TouchableOpacity>
-  }
-/>
 
-    <View style={styles.body}>
+      <View style={styles.body}>
         {/* Left pane */}
-     <View style={styles.listPane}>
- 
+        <View style={styles.listPane}>
+          {/* ── Order list date filter ── */}
+          <View style={styles.listFilterBar}>
+            <TouchableOpacity
+              style={styles.listFilterChip}
+              onPress={() => openPicker("list")}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="calendar" size={18} color={colors.primary} />
+              <Text style={styles.listFilterText}>
+                {listDate ? formatDateLong(listDate) : "All dates"}
+              </Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
 
+            <TouchableOpacity
+              onPress={() => setListDate(listDate ? null : new Date())}
+              hitSlop={8}
+            >
+              <Text style={styles.listFilterAction}>{listDate ? "Show all" : "Today"}</Text>
+            </TouchableOpacity>
+          </View>
 
-          
           {ordersLoading && orders.length === 0 ? (
             // First ever load, nothing cached yet — full-pane spinner.
             <View style={styles.emptyList}>
@@ -2024,7 +2030,7 @@ return (
         </View>
       </View>
 
-       {/* ── Daily Summary date picker (new) ── */}
+      {/* ── Shared date picker (order list + daily summary) ── */}
       <Modal
         visible={summaryPickerVisible}
         transparent
@@ -2037,6 +2043,10 @@ return (
           onPress={() => setSummaryPickerVisible(false)}
         >
           <TouchableOpacity activeOpacity={1} style={styles.summaryPickerCard}>
+            <Text style={styles.summaryPickerTitle}>
+              {pickerTarget === "list" ? "Filter orders by date" : "Daily summary date"}
+            </Text>
+
             <View style={styles.summaryPickerHeader}>
               <TouchableOpacity
                 hitSlop={8}
@@ -2068,13 +2078,14 @@ return (
             <View style={styles.summaryPickerGrid}>
               {getCalendarCells(summaryPickerMonth).map((cell, idx) => {
                 if (!cell) return <View key={idx} style={styles.summaryPickerCell} />;
-                const isSelected = dateKey(cell) === dateKey(summaryDate);
+                const isSelected =
+                  !!pickerActiveDate && dateKey(cell) === dateKey(pickerActiveDate);
                 const isToday = dateKey(cell) === dateKey(new Date());
                 return (
                   <TouchableOpacity
                     key={idx}
                     style={[styles.summaryPickerCell, isSelected && styles.summaryPickerCellSelected]}
-                    onPress={() => handleSelectSummaryDate(cell)}
+                    onPress={() => handleSelectPickerDate(cell)}
                   >
                     <Text
                       style={[
@@ -2092,7 +2103,7 @@ return (
 
             <TouchableOpacity
               style={styles.summaryPickerTodayBtn}
-              onPress={() => handleSelectSummaryDate(new Date())}
+              onPress={() => handleSelectPickerDate(new Date())}
             >
               <Text style={styles.summaryPickerTodayBtnText}>Today</Text>
             </TouchableOpacity>
@@ -2100,8 +2111,7 @@ return (
         </TouchableOpacity>
       </Modal>
 
-
-         {/* ── Daily Sales Summary side panel (new) ── */}
+      {/* ── Daily Sales Summary side panel ── */}
       {dailySummaryVisible && (
         <TouchableOpacity
           style={styles.dailySummaryBackdrop}
@@ -2132,7 +2142,7 @@ return (
             </View>
             <TouchableOpacity
               style={styles.dailySummaryChangeBtn}
-              onPress={handleOpenSummaryPicker}
+              onPress={() => openPicker("summary")}
             >
               <Text style={styles.dailySummaryChangeBtnText}>Change</Text>
             </TouchableOpacity>
@@ -2197,8 +2207,6 @@ return (
   );
 }
 
-
-
 // ─── Column widths for item table ─────────────────────────────────────────
 const COL = {
   item:  180,
@@ -2249,15 +2257,41 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
   },
   searchInput: { flex: 1, fontSize: 16, color: colors.textPrimary },
-groupLabel: {
-  fontSize: 17,
-  fontWeight: "800",
-  color: colors.textPrimary,   // dark, not muted gray
-  letterSpacing: 0.3,
-  paddingHorizontal: spacing.lg,
-  paddingVertical: 10,
-  backgroundColor: "#F1F5F9",  // light gray band behind the date
-},
+
+  // ── Order list date filter bar (new) ──
+  listFilterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  listFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.divider,
+    backgroundColor: "#F8FAFC",
+  },
+  listFilterText: { fontSize: 14.5, fontWeight: "700", color: colors.textPrimary },
+  listFilterAction: { fontSize: 13.5, fontWeight: "700", color: colors.primary },
+
+  groupLabel: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: colors.textPrimary, // dark, not muted gray
+    letterSpacing: 0.3,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    backgroundColor: "#F1F5F9", // light gray band behind the date
+  },
   listRow: {
     paddingHorizontal: spacing.lg,
     paddingVertical: 16,
@@ -2315,16 +2349,15 @@ groupLabel: {
     borderBottomColor: colors.divider,
     gap: spacing.xl,
   },
-tabBtn: {
-  paddingVertical: 18,
-  borderBottomWidth: 3,
-  borderBottomColor: "transparent",
-  marginBottom: -1,
-},
-
-tabBtnActive: {
-  borderBottomColor: colors.primary,
-},
+  tabBtn: {
+    paddingVertical: 18,
+    borderBottomWidth: 3,
+    borderBottomColor: "transparent",
+    marginBottom: -1,
+  },
+  tabBtnActive: {
+    borderBottomColor: colors.primary,
+  },
   tabText: { fontSize: 16, fontWeight: "600", color: colors.textMuted },
   tabTextActive: { color: colors.primary, fontWeight: "700" },
   detailScroll: { flex: 1 },
@@ -2592,15 +2625,14 @@ tabBtnActive: {
     justifyContent: "space-between",
     paddingVertical: 6,
   },
-refundHistoryLineName: { 
-  fontSize: 18, 
-  fontWeight: "500", 
-  color: colors.textPrimary, 
-  flex: 1, 
-  paddingRight: 10 
-},
+  refundHistoryLineName: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: colors.textPrimary,
+    flex: 1,
+    paddingRight: 10,
+  },
   refundHistoryLineAmount: { fontSize: 17, fontWeight: "500", color: colors.textPrimary },
-
 
   refundScreenRoot: {
     flex: 1,
@@ -2781,28 +2813,28 @@ refundHistoryLineName: {
   refundConfirmBtnDisabled: { backgroundColor: colors.textMuted },
   refundConfirmBtnText: { color: colors.white, fontSize: 19, fontWeight: "700" },
   entryRow: {
-  paddingHorizontal: spacing.xl,
-  paddingVertical: 16,
-  borderBottomWidth: 1,
-  borderBottomColor: colors.divider,
-  gap: 6,
-},
-entryRowLast: { borderBottomWidth: 0 },
-entryTopLine: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "center",
-},
-entryDate: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
-entryAmount: { fontSize: 17, fontWeight: "800", color: colors.textPrimary },
-entryBottomLine: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "center",
-},
-entrySubLeft: { fontSize: 14.5, color: colors.textMuted, flex: 1, paddingRight: 10 },
-entrySubRight: { fontSize: 14.5, color: colors.textMuted },
-refundSelectAllRow: {
+    paddingHorizontal: spacing.xl,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+    gap: 6,
+  },
+  entryRowLast: { borderBottomWidth: 0 },
+  entryTopLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  entryDate: { fontSize: 17, fontWeight: "700", color: colors.textPrimary },
+  entryAmount: { fontSize: 17, fontWeight: "800", color: colors.textPrimary },
+  entryBottomLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  entrySubLeft: { fontSize: 14.5, color: colors.textMuted, flex: 1, paddingRight: 10 },
+  entrySubRight: { fontSize: 14.5, color: colors.textMuted },
+  refundSelectAllRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -2827,7 +2859,8 @@ refundSelectAllRow: {
     fontWeight: "600",
     color: colors.textPrimary,
   },
-    // ── Daily Sales Summary (new) ──────────────────────────────────────
+
+  // ── Daily Sales Summary ─────────────────────────────────────────────
   dailySummaryCard: {
     margin: spacing.md,
     marginBottom: 0,
@@ -2932,7 +2965,7 @@ refundSelectAllRow: {
   },
   dailySummaryTotalsValue: { fontSize: 14.5, fontWeight: "800", color: colors.primary },
 
-  // ── Daily Summary date picker modal (new) ──────────────────────────
+  // ── Shared date picker modal ────────────────────────────────────────
   summaryPickerOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -2944,6 +2977,13 @@ refundSelectAllRow: {
     backgroundColor: colors.white,
     borderRadius: radii.lg || 16,
     padding: spacing.lg,
+  },
+  summaryPickerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textAlign: "center",
+    marginBottom: 10,
   },
   summaryPickerHeader: {
     flexDirection: "row",
@@ -2981,7 +3021,8 @@ refundSelectAllRow: {
     paddingVertical: 8,
   },
   summaryPickerTodayBtnText: { fontSize: 13.5, fontWeight: "700", color: colors.primary },
-    // ── Header trigger button (new) ──
+
+  // ── Header trigger button ──
   dailySummaryTriggerBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2998,7 +3039,7 @@ refundSelectAllRow: {
     color: colors.white,
   },
 
-  // ── Side panel (new) — replaces the old Modal popover ──────────────
+  // ── Side panel — replaces the old Modal popover ─────────────────────
   dailySummaryBackdrop: {
     position: "absolute",
     top: 0,
@@ -3026,6 +3067,4 @@ refundSelectAllRow: {
     shadowRadius: 12,
     elevation: 12,
   },
-
-
 });

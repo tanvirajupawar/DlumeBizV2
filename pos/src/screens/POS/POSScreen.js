@@ -96,6 +96,7 @@ const [paymentFetching, setPaymentFetching] = useState(false);
   const [cartItems, setCartItems] = useState([]);
   const [managedItem, setManagedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
+const [customerListSearch, setCustomerListSearch] = useState("");
 
   const handleAddCalculatorItem = (item) => {
   setCartItems((prev) => [...prev, item]);
@@ -860,7 +861,12 @@ useEffect(() => {
 
 
 
-const handlePaymentSubmit = async ({ amount, method }) => {
+const handlePaymentSubmit = async ({
+  amount,
+  method,
+  date,
+  remarks,
+}) => {
   if (!paymentCustomer) return;
 
   try {
@@ -869,8 +875,9 @@ const handlePaymentSubmit = async ({ amount, method }) => {
     const payload = {
       amount: Number(amount),
       payment_method: method,
+      payment_date: date,
       reference_no: "",
-      remarks: "Customer account payment",
+      remarks: typeof remarks === "string" ? remarks.trim() : "",
     };
 
     if (paymentSaleId) {
@@ -927,7 +934,9 @@ const handlePaymentSubmit = async ({ amount, method }) => {
 
 
 
-
+useEffect(() => {
+  if (activeNav !== "customers") setCustomerListSearch("");
+}, [activeNav]);
 
 
 
@@ -964,7 +973,7 @@ const handlePaymentSubmit = async ({ amount, method }) => {
   
 <Header
   title={activeNav === "customers" ? "Customers" : "Cart"}
-  hideSearch={isCalculatorMode || activeNav === "customers"}
+  hideSearch={isCalculatorMode && activeNav !== "customers"}
   hideScanner={isCalculatorMode || activeNav === "customers"}
   hideCustomer={activeNav === "customers"}
   hideMore={activeNav === "customers"}
@@ -984,9 +993,18 @@ onAddPress={
   
       }}
       searchInputRef={searchInputRef}
-      searchValue={searchText}
-      onSearchChange={handleSearchChange}
-      onSubmitEditing={handleBarcodeScan}
+     searchValue={activeNav === "customers" ? customerListSearch : searchText}
+onSearchChange={
+  activeNav === "customers" ? setCustomerListSearch : handleSearchChange
+}
+onSubmitEditing={
+  activeNav === "customers" ? undefined : handleBarcodeScan
+}
+searchPlaceholder={
+  activeNav === "customers"
+    ? "Search by name, phone or company"
+    : undefined
+}
       onScanPress={() => {
         searchInputRef.current?.focus();
       }}
@@ -1135,6 +1153,7 @@ onAddPress={
     ) : (
 <CustomerListScreen
   customers={customers}
+  searchValue={customerListSearch}
   onCustomerPress={(customer) => {
     setSelectedCustomerAccount(customer);
   }}

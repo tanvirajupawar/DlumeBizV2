@@ -594,25 +594,25 @@ console.log(
             )}
           </View>
         }
-        rightExtra={
-          <Pressable
-            style={styles.filterBtn}
-            onPress={() => setPanelOpen((v) => !v)}
-            hitSlop={8}
-          >
-            <MaterialCommunityIcons
-              name="calendar-text-outline"
-              size={18}
-              color={COLORS.white}
-            />
-            <Text style={styles.filterBtnText}>{dateLabel}</Text>
-            <MaterialCommunityIcons
-              name={panelOpen ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={COLORS.white}
-            />
-          </Pressable>
-        }
+        // rightExtra={
+        //   <Pressable
+        //     style={styles.filterBtn}
+        //     onPress={() => setPanelOpen((v) => !v)}
+        //     hitSlop={8}
+        //   >
+        //     <MaterialCommunityIcons
+        //       name="calendar-text-outline"
+        //       size={18}
+        //       color={COLORS.white}
+        //     />
+        //     <Text style={styles.filterBtnText}>{dateLabel}</Text>
+        //     <MaterialCommunityIcons
+        //       name={panelOpen ? "chevron-up" : "chevron-down"}
+        //       size={16}
+        //       color={COLORS.white}
+        //     />
+        //   </Pressable>
+        // }
       >
         <View style={styles.hdrOutstanding}>
           <Text style={styles.hdrOutLabel}>OUTSTANDING</Text>
