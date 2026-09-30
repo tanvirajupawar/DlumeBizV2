@@ -273,6 +273,7 @@ const mapPayment = (col) => ({
   receiptNo: col.receipt_no || "-",
   invoiceNo: col.invoice_no || (col.invoice_ids && col.invoice_ids[0]) || "-",
   invoiceIds: col.invoice_ids || [],
+  allocations: col.allocations || [],
   date: col.date || col.payment_date || col.createdOn || "",
   method: col.payment_method || "-",
   remarks: col.remarks || col.note || "-",
@@ -866,9 +867,24 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
     );
   }
 
-  const orderPayments = (payments || [])
-    .filter((p) => paymentBelongsToOrder(p, order))
-    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+const orderPayments = (payments || [])
+  .filter((p) => {
+    if (!order) return false;
+
+    return (p.allocations || []).some(
+      (allocation) =>
+        String(allocation.sale_order_id || "") === String(order.id) ||
+        (
+          allocation.invoice_no &&
+          order.invoiceNo &&
+          allocation.invoice_no === order.invoiceNo
+        )
+    );
+  })
+  .sort(
+    (a, b) =>
+      new Date(b.date || 0) - new Date(a.date || 0)
+  );
 
   const orderReturns = (returns || [])
     .filter((r) => returnBelongsToOrder(r, order))
@@ -1321,7 +1337,28 @@ const handleDelete = () => {
           >
             <View style={styles.entryTopLine}>
               <Text style={styles.entryDate}>{formatDate(p.date)}</Text>
-              <Text style={styles.entryAmount}>{"\u20B9"}{money(p.amount)}</Text>
+            <Text style={styles.entryAmount}>
+  {"\u20B9"}
+  {money(
+    (
+      p.allocations || []
+    )
+      .filter(
+        (allocation) =>
+          String(allocation.sale_order_id || "") === String(order.id) ||
+          (
+            allocation.invoice_no &&
+            order.invoiceNo &&
+            allocation.invoice_no === order.invoiceNo
+          )
+      )
+      .reduce(
+        (sum, allocation) =>
+          sum + Number(allocation.amount || 0),
+        0
+      )
+  )}
+</Text>
             </View>
             <View style={styles.entryBottomLine}>
               <Text style={styles.entrySubLeft} numberOfLines={1}>
