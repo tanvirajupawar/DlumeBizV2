@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useRef } from "react";
 import {
   NativeModules,
-  NativeEventEmitter,
+  DeviceEventEmitter,
 } from "react-native";
 import {
   View,
@@ -64,14 +64,10 @@ import { createCategory, updateCategory, deleteCategory } from "../../api/catego
 import { getCached, setCached, getCachedSync } from "../../utils/cache";
 
 const { SunmiScanner } = NativeModules;
-const scannerEmitter = new NativeEventEmitter(SunmiScanner);
-
+const scannerEmitter = DeviceEventEmitter;
 const APP = { name: "D'LumeBiz", registerType: "Default Register" };
 
-// Cache keys for this screen's own data. Each screen that fetches from the
-// API owns its own namespaced key(s) — see the note in OrdersScreen /
-// PaymentsScreen / RefundsScreen about not sharing keys across screens
-// whose mapped shapes differ.
+
 const CACHE_KEYS = {
   products: "pos:products:v1",
   customers: "pos:customers:v1",

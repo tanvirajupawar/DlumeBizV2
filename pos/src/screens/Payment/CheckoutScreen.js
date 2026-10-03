@@ -78,8 +78,9 @@ const handleSelectPayment = async (paymentId) => {
 
   setProcessingMethod(paymentId);
 
-  let payment = null;
-  let sale;
+let payment = null;
+let sale;
+let actualPaidAmount = 0;
 
   try {
     const customerId = customer?._id || customer?.id || null;
@@ -127,10 +128,16 @@ const paymentPayload = {
       ? "CARD"
       : "UPI",
 };
-
 const paymentResponse = await createPayment(paymentPayload);
 
 console.log("🔥 V2 PAYMENT RESPONSE:", paymentResponse);
+
+actualPaidAmount =
+  Number(
+    paymentResponse?.data?.payment_amount ??
+    paymentResponse?.payment_amount ??
+    payableTotal
+  );
 
 
 
@@ -194,12 +201,18 @@ const receipt = {
       ? "Card"
       : "UPI",
 
-  subtotal,
-  totalDiscount: discountValue,
-  totalTax: tax,
-  finalPaymentAmount: payableTotal,
-  amountReceived: payableTotal,
+subtotal,
+totalDiscount: discountValue,
+totalTax: tax,
+finalPaymentAmount: payableTotal,
+amountReceived: actualPaidAmount,
 
+remainingOutstanding: Math.max(
+  0,
+  Number(customer?.outstanding || 0) +
+    Number(payableTotal || 0) -
+    Number(actualPaidAmount || 0)
+),
   receipt_size: "58mm",
   isGSTUser: false,
   isIntraState: true,

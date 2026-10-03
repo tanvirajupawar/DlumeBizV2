@@ -29,8 +29,7 @@ const PAYMENT_ICONS = {
 
 const ACCENT = "#16A34A";
 const ACCENT_DARK = "#0F3D27";
-const AUTO_NAVIGATE_DELAY = 6000; // gives the cashier real time to print before bouncing
-
+const AUTO_NAVIGATE_DELAY = 60000;
 export default function POSPaymentSuccessScreen({ route, navigation }) {
   const {
     amount = 0,
@@ -79,6 +78,8 @@ export default function POSPaymentSuccessScreen({ route, navigation }) {
   };
 
   const handlePrint = async () => {
+      console.log("🖨️ PRINT BUTTON PRESSED");
+
     if (printState === "printing") return;
 
     if (!receipt) {

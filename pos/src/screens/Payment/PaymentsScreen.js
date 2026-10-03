@@ -23,6 +23,7 @@ import {
   SPACING as spacing,
 } from "../../components/Colors";
 import Header from "../../components/Header";
+import { printDailyPaymentSummary } from "../../services/printer";
 // Same shared cache module used by OrdersScreen — see utils/cache.js for
 // how the sync/async split works.
 import { getCached, setCached, getCachedSync } from "../../utils/cache";
@@ -897,7 +898,51 @@ export default function PaymentsScreen({ onMenuPress = () => {} }) {
 <View style={styles.dailySummaryActionRow}>
   <TouchableOpacity
     style={styles.dailySummaryPrintBtn}
-    onPress={() => {}}
+    onPress={async () => {
+  try {
+const result = await printDailyPaymentSummary({
+  date: dateKey(summaryDate),
+
+  items: dailySummaryPayments.map((p) => ({
+    customerName: p.customerName || "Walk-in Customer",
+    method: p.method,
+    methodLabel: METHOD_META[p.method]?.label || p.methodRaw || "Other",
+    invoiceNo: p.invoiceNo || "-",
+    amount: Number(p.amount || 0),
+  })),
+
+  cash: dailySummaryTotals.cash.total,
+  upi: dailySummaryTotals.upi.total,
+  card: dailySummaryTotals.card.total,
+  other: dailySummaryTotals.other.total,
+  totalReceived: dailySummaryTotals.all.total,
+});
+
+    console.log(
+      "DAILY PAYMENT SUMMARY PRINT RESULT:",
+      result
+    );
+
+    if (!result?.success) {
+      Alert.alert(
+        "Print Failed",
+        result?.error?.message ||
+          "Unable to print daily payment summary."
+      );
+    }
+  } catch (error) {
+    console.log(
+      "DAILY PAYMENT SUMMARY PRINT ERROR:",
+      error
+    );
+
+    Alert.alert(
+      "Print Failed",
+      error?.message ||
+        "Unable to print daily payment summary."
+    );
+  }
+}}
   >
     <MaterialCommunityIcons
       name="printer-outline"
