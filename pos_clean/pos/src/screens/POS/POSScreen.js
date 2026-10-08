@@ -610,16 +610,17 @@ const handlePrintCustomerSummary = async (customer, range) => {
     const to = range?.to ? new Date(range.to) : new Date();
 
     // Compare by local calendar date
-    const getDate = (item) =>
-      new Date(
-        item?.invoice_date ||
-          item?.date ||
-          item?.order_date ||
-          item?.payment_date ||
-          item?.createdAt ||
-          item?.createdOn ||
-          0
-      );
+ const getDate = (item) =>
+  new Date(
+    item?.createdAt ||
+      item?.created_at ||
+      item?.createdOn ||
+      item?.invoice_date ||
+      item?.payment_date ||
+      item?.order_date ||
+      item?.date ||
+      0
+  );
 
     const isInRange = (item) => {
       const date = getDate(item);

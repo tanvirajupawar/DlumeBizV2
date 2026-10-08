@@ -54,8 +54,14 @@ const isOpening = (i) =>
     i?.openingBalance === true ||
     i?.type === "opening"
   );
-  const entryDate = (i) =>
-  i.invoice_date || i.date || i.order_date || i.payment_date || i.createdOn;
+const entryDate = (i) =>
+  i.createdAt ||
+  i.created_at ||
+  i.createdOn ||
+  i.invoice_date ||
+  i.payment_date ||
+  i.order_date ||
+  i.date;
 const totalOf = (i) => Number(i.total_amount ?? i.amount ?? 0);
 const openingAmount = (i) =>
   Number(i.balance_amount ?? i.total_amount ?? i.amount ?? 0);
