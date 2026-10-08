@@ -53,19 +53,26 @@ const {
   paymentAmount = null,
 } = route.params || {};
 
-const finalPaymentAmount =
-  paymentAmount !== null
-    ? Number(paymentAmount)
-    : Number(grandTotal || 0);
+const currentInvoiceAmount = Number(
+  discountedGrandTotal ?? grandTotal ?? 0
+);
 
-  const onBack = () => navigation.goBack();
+const amountToPay = Number(paymentAmount ?? 0);
+
+const onBack = () => navigation.goBack();
 
 const [discount, setDiscount] = useState(
   String(incomingDiscount || "")
 );
-const [note, setNote] = useState("");   
+
+const [note, setNote] = useState("");
 const [processingMethod, setProcessingMethod] = useState(null);
+
 const isCreditSummaryFlow = !!creditSummary;
+
+const finalPaymentAmount = isCreditSummaryFlow
+  ? amountToPay
+  : currentInvoiceAmount;
 
 const discountValue = isCreditSummaryFlow
   ? Number(incomingDiscount) || 0
@@ -75,12 +82,11 @@ const discountValue = isCreditSummaryFlow
     );
 
 const payableTotal = isCreditSummaryFlow
-  ? Number(discountedGrandTotal ?? finalPaymentAmount) || 0
+  ? Number(creditSummary?.total_payable || currentInvoiceAmount)
   : Math.max(
       0,
-      Number(finalPaymentAmount) - discountValue
+      Number(grandTotal || 0) - discountValue
     );
-
 
 
 
@@ -88,6 +94,32 @@ const handleSelectPayment = async (paymentId) => {
   if (processingMethod) return;
 
   setProcessingMethod(paymentId);
+
+  const paymentAmountForCheckout = isCreditSummaryFlow
+  ? Number(paymentAmount ?? 0)
+  : currentInvoiceAmount;
+
+if (
+  isCreditSummaryFlow &&
+  (
+    !Number.isFinite(paymentAmountForCheckout) ||
+    paymentAmountForCheckout <= 0 ||
+    paymentAmountForCheckout > payableTotal
+  )
+) {
+  alert(
+    paymentAmountForCheckout > payableTotal
+      ? `Amount to pay cannot exceed the total payable of ₹${payableTotal.toFixed(
+          2
+        )}.`
+      : "Please enter a valid amount to pay."
+  );
+
+  setProcessingMethod(null);
+  return;
+}
+
+
 
 let payment = null;
 let sale;
@@ -110,7 +142,7 @@ let actualPaidAmount = 0;
 
       subtotal: Number(subtotal) || 0,
       discount_amount: discountValue,
-      total_amount: payableTotal,
+      total_amount: currentInvoiceAmount,
 
       items: cartItems.map((item) => ({
         product_id: null,
@@ -131,8 +163,10 @@ let actualPaidAmount = 0;
     sale = response.data || response;
 
 const paymentPayload = {
- sale_id: sale.sale_id,
-  amount: payableTotal,
+  sale_id: sale.sale_id,
+  amount: isCreditSummaryFlow
+    ? amountToPay
+    : currentInvoiceAmount,
   payment_method:
     paymentId === "cash"
       ? "CASH"
@@ -219,27 +253,51 @@ customerName:
 subtotal,
 totalDiscount: discountValue,
 totalTax: tax,
-finalPaymentAmount: payableTotal,
+finalPaymentAmount: currentInvoiceAmount,
 amountReceived: actualPaidAmount,
 
 // --------------------------------
-// BACKEND ACCOUNT VALUES
+// ACCOUNT VALUES FOR RECEIPT
 // --------------------------------
+invoiceAmount: isCreditSummaryFlow
+  ? Number(currentInvoiceAmount) || 0
+  : Number(paymentResponse?.data?.invoice_amount ?? currentInvoiceAmount),
 
-invoiceAmount:
-  paymentResponse?.data?.invoice_amount ?? 0,
+previousOutstanding: isCreditSummaryFlow
+  ? Number(creditSummary?.previous_outstanding || 0)
+  : Number(paymentResponse?.data?.previous_outstanding || 0),
 
-previousOutstanding:
-  paymentResponse?.data?.previous_outstanding ?? 0,
+totalAmount: isCreditSummaryFlow
+  ? Number(creditSummary?.total_payable || currentInvoiceAmount)
+  : Number(
+      paymentResponse?.data?.total_amount ??
+        (
+          Number(paymentResponse?.data?.previous_outstanding || 0) +
+          Number(paymentResponse?.data?.invoice_amount || currentInvoiceAmount)
+        )
+    ),
 
-totalAmount:
-  paymentResponse?.data?.total_amount ?? 0,
+totalPaid: isCreditSummaryFlow
+  ? Number(amountToPay) || 0
+  : Number(paymentResponse?.data?.payment_amount || actualPaidAmount || 0),
 
-totalPaid:
-  paymentResponse?.data?.total_paid ?? 0,
-
-remainingOutstanding:
-  paymentResponse?.data?.remaining_outstanding ?? 0,
+remainingOutstanding: isCreditSummaryFlow
+  ? Math.max(
+      0,
+      Number(creditSummary?.total_payable || currentInvoiceAmount) -
+        (Number(amountToPay) || 0)
+    )
+  : Math.max(
+      0,
+      Number(
+        paymentResponse?.data?.total_amount ??
+          (
+            Number(paymentResponse?.data?.previous_outstanding || 0) +
+            Number(paymentResponse?.data?.invoice_amount || currentInvoiceAmount)
+          )
+      ) -
+        Number(paymentResponse?.data?.payment_amount || actualPaidAmount || 0)
+    ),
 
 receipt_size: "58mm",
   isGSTUser: false,
@@ -290,7 +348,7 @@ items: cartItems.map(item => ({
     saleId: sale._id,
     saleCompleted: sale,
     receipt,
-    amount: payableTotal,
+    amount: actualPaidAmount,
     paymentMethod: paymentId,
   });
 };

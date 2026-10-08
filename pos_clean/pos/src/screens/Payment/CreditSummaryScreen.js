@@ -285,12 +285,19 @@ export default function CreditSummaryScreen() {
           totalDiscount: discountValue,
           totalTax: Number(tax) || 0,
 
-          finalPaymentAmount: discountedGrandTotal,
+   finalPaymentAmount: discountedGrandTotal,
 
-          // IMPORTANT
-          amountReceived: 0,
+// ACCOUNT VALUES
+invoiceAmount: Number(discountedGrandTotal) || 0,
+previousOutstanding: Number(previousOutstanding) || 0,
+totalAmount: Number(totalPayable) || 0,
+totalPaid: 0,
+remainingOutstanding: Number(totalPayable) || 0,
 
-          receipt_size: "58mm",
+// IMPORTANT
+amountReceived: 0,
+
+receipt_size: "58mm",
           isGSTUser: false,
           isIntraState: true,
 

@@ -517,12 +517,25 @@ console.log(
             )}
           </View>
 
-          <Text style={[styles.td, styles.cNum]}>
-            {!isPay ? money(item._amt) : ""}
-          </Text>
-          <Text style={[styles.td, styles.cNum]}>
-            {isPay ? money(item._amt) : ""}
-          </Text>
+ <Text
+  style={[
+    styles.td,
+    styles.cNum,
+    !isPay && styles.invoiceAmount,
+  ]}
+>
+  {!isPay ? money(item._amt) : ""}
+</Text>
+
+<Text
+  style={[
+    styles.td,
+    styles.cNum,
+    isPay && styles.receivedAmount,
+  ]}
+>
+  {isPay ? money(item._amt) : ""}
+</Text>
           <Text
             style={[
               styles.tdStrong,
@@ -971,7 +984,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   td: { fontSize: 15, color: COLORS.textSecondary },
-  tdStrong: { fontSize: 15.5, fontWeight: "700", color: COLORS.textPrimary },
+invoiceAmount: {
+  fontWeight: "800",
+  color: "#000000",
+},
+
+receivedAmount: {
+  fontWeight: "800",
+  color: "#16A34A",
+},
   tdSub: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
   refLine: { flexDirection: "row", alignItems: "center" },
 
