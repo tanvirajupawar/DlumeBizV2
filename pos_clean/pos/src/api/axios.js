@@ -3,7 +3,7 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_BASE_URL = "http://192.168.1.14:3001/api";
+const API_BASE_URL = "https://back.dlumebiz.com/api";
 const AUTH_STORAGE_KEY = "dlumebiz_auth";
 
 const api = axios.create({
