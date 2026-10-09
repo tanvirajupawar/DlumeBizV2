@@ -185,6 +185,8 @@ export default function CartPanel({
   onSelectCustomer,
   grandTotal = 0,
   checkoutDisabled = false,
+  checkoutLabel = "Checkout",
+   isReturnMode = false, 
   onCheckout,
 }) {
 
@@ -222,7 +224,16 @@ const itemLabel = item.isCalculatorItem
 
   return (
     <View style={styles.container} testID="cart-panel">
-      <View style={styles.body}>
+          <View style={styles.body}>
+        {isReturnMode ? (
+          <View style={styles.returnBanner}>
+            <Ionicons name="return-up-back" size={18} color="#B91C1C" />
+            <Text style={styles.returnBannerText}>
+              RETURN MODE · items will be returned to the customer
+            </Text>
+          </View>
+        ) : null}
+
         <CustomerBar customer={selectedCustomer} onRemove={handleRemoveCustomer} />
 
         {isEmpty ? (
@@ -254,6 +265,8 @@ const itemLabel = item.isCalculatorItem
         checkoutDisabled={checkoutDisabled}
         onClear={onClearCart}
         onHold={onHoldCart}
+        checkoutLabel={checkoutLabel}
+         isReturnMode={isReturnMode} 
         onCheckout={onCheckout}
       />
     </View>
@@ -368,4 +381,17 @@ const styles = StyleSheet.create({
   marginTop: 4,
   lineHeight: 19,
 },
+  returnBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: SPACING.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#FEE2E2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  returnBannerText: { flex: 1, fontSize: 12, fontWeight: "800", color: "#B91C1C" },
 });

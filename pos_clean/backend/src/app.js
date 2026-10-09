@@ -9,10 +9,21 @@ import paymentRoutes from "./routes/payment.routes.js";
 import invoiceRoutes from "./routes/invoice.routes.js";
 import customerAccountRoutes from "./routes/customer_account.routes.js";
 import customerLedgerRoutes from "./routes/customer_ledger.routes.js";
-
+import customerReturnRoutes from "./routes/customer_return.routes.js";
+import cors from "cors";
 
 const app = express();
 console.log("🔥🔥🔥 V2 APP.JS LOADED 🔥🔥🔥");
+
+app.use(
+  cors({
+    origin: [
+      "https://dlumebiz.com",
+    ],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -29,6 +40,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/invoices", invoiceRoutes);
 app.use("/api/customer-accounts", customerAccountRoutes);
 app.use("/api/customer-ledger", customerLedgerRoutes);
+app.use("/api/customer-returns", customerReturnRoutes);
 
 
 

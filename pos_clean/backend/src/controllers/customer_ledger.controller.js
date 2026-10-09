@@ -2,6 +2,7 @@ import Customer from "../models/customer.model.js";
 import Sale from "../models/sale.model.js";
 import Payment from "../models/payment.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
+import CustomerReturn from "../models/customer_return.model.js";
 
 export const getCustomerLedger = async (req, res) => {
   try {
@@ -54,6 +55,19 @@ export const getCustomerLedger = async (req, res) => {
     })
       .sort({ payment_date: 1 })
       .lean();
+
+
+
+// --------------------------------
+// 4A. GET CUSTOMER RETURNS
+// --------------------------------
+
+const customerReturns = await CustomerReturn.find({
+  company_id: companyId,
+  customer_id: customer._id,
+})
+  .sort({ return_date: 1 })
+  .lean();
 
     // --------------------------------
     // 5. BUILD SALE PAYMENT MAP
@@ -119,6 +133,22 @@ export const getCustomerLedger = async (req, res) => {
     }
 
     // --------------------------------
+// 7A. ADD RETURN TRANSACTIONS
+// --------------------------------
+
+for (const customerReturn of customerReturns) {
+  transactions.push({
+    type: "RETURN",
+    date: customerReturn.return_date,
+    reference: customerReturn.return_no,
+    return_id: customerReturn._id,
+    amount: Number(customerReturn.total_amount || 0),
+    credit: Number(customerReturn.total_amount || 0),
+    description: customerReturn.description || "",
+  });
+}
+
+    // --------------------------------
     // 8. SORT ALL TRANSACTIONS
     // --------------------------------
 
@@ -142,8 +172,18 @@ export const getCustomerLedger = async (req, res) => {
       0
     );
 
-    const outstanding =
-      openingBalance + totalSales - totalPayments;
+const totalReturns = customerReturns.reduce(
+  (total, customerReturn) =>
+    total + Number(customerReturn.total_amount || 0),
+  0
+);
+
+const outstanding = Number(
+  Math.max(
+    0,
+    openingBalance + totalSales - totalPayments - totalReturns
+  ).toFixed(2)
+);
 
     // --------------------------------
     // 10. RESPONSE

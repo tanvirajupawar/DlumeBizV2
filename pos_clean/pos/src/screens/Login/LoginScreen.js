@@ -20,6 +20,7 @@ import Button from "../../components/Button";
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false); 
 
   const navigation = useNavigation();
   const { login } = useAuth();
@@ -30,33 +31,25 @@ const handleLogin = async () => {
     return;
   }
 
-try {
-  console.log("Username:", username);
+  try {
+    setLoading(true);                              // add this
 
-  const response = await loginUser(username, password);
+    const response = await loginUser(username, password);
 
-  console.log(
-  "🔥 V2 LOGIN USER:",
-  JSON.stringify(response.data.user, null, 2)
-);
+    await login({
+      userData: response.data.user,
+      accessToken: response.data.accessToken,
+    });
 
-  await login({
-    userData: response.data.user,
-    accessToken: response.data.accessToken,
-  });
-
-  navigation.replace("POS");
-} catch (error) {
-  console.log("FULL ERROR:", error);
-  console.log("ERROR MESSAGE:", error.message);
-  console.log("ERROR CODE:", error.code);
-  console.log("ERROR RESPONSE:", error.response?.data);
-
-  Alert.alert(
-    "Login Failed",
-    error.response?.data?.message || error.message || "Unknown Error"
-  );
-}
+    navigation.replace("POS");
+  } catch (error) {
+    Alert.alert(
+      "Login Failed",
+      error.response?.data?.message || error.message || "Unknown Error"
+    );
+  } finally {
+    setLoading(false);                             // add this
+  }
 };
 
   return (
@@ -106,10 +99,13 @@ try {
           </View>
 
           <View style={{ marginTop: 8 }}>
-            <Button
-              title="Sign In"
-              onPress={handleLogin}
-            />
+           <Button
+  title="Sign In"
+  onPress={handleLogin}
+  loading={loading}
+  loadingText="Logging in..."
+
+/>
           </View>
 
           <View style={styles.divider} />

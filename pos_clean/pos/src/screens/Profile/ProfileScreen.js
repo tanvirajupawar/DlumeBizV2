@@ -24,7 +24,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 
-const BASE_URL = "https://back.dlumebiz.com";
+const BASE_URL = "http://192.168.1.14:3001";
 
 // 🖨️ Existing native Bluetooth printer module
 const { BluetoothPrinter } = NativeModules;

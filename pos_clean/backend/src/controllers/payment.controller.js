@@ -4,6 +4,8 @@ import Sale from "../models/sale.model.js";
 import Company from "../models/company.model.js";
 import Customer from "../models/customer.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
+import CustomerReturn from "../models/customer_return.model.js";
+import CustomerReturnAllocation from "../models/customer_return_allocation.model.js";
 import mongoose from "mongoose";
 
 export const createPayment = async (req, res) => {
@@ -144,6 +146,8 @@ if (sale) {
 
 let previousOutstanding = 0;
 
+let openingBalanceReturnAmount = 0;
+
 if (
   customer &&
   company.payment_mode === "CREDIT"
@@ -171,10 +175,51 @@ if (
       0
     );
 
-  const remainingOpeningBalance = Math.max(
-    0,
-    originalOpeningBalance - openingBalancePaid
+
+const openingBalanceReturnRecords = await CustomerReturn.find({
+  company_id: companyId,
+  customer_id: customer._id,
+})
+  .session(session)
+  .lean();
+
+openingBalanceReturnAmount = 0;
+
+for (const returnRecord of openingBalanceReturnRecords) {
+  const returnAllocations = await CustomerReturnAllocation.find({
+    company_id: companyId,
+    return_id: returnRecord._id,
+  })
+    .session(session)
+    .lean();
+
+  const allocatedToInvoices = returnAllocations.reduce(
+    (total, allocation) =>
+      total + Number(allocation.amount || 0),
+    0
   );
+
+  const returnTotal = Number(
+    returnRecord.total_amount ?? returnRecord.totalAmount ?? 0
+  );
+
+  openingBalanceReturnAmount += Math.max(
+    0,
+    Math.round((returnTotal - allocatedToInvoices) * 100) / 100
+  );
+}
+
+const remainingOpeningBalance = Math.max(
+  0,
+  Math.round(
+    (
+      originalOpeningBalance -
+      openingBalancePaid -
+      openingBalanceReturnAmount
+    ) * 100
+  ) / 100
+);
+
 
   // Previous customer invoices
   // Current invoice is explicitly excluded.
@@ -206,19 +251,51 @@ if (
         0
       );
 
-    const previousRemaining = Math.max(
-      0,
+   
+const previousReturnAllocations =
+  await CustomerReturnAllocation.find({
+    company_id: companyId,
+    sale_id: previousSale._id,
+  })
+    .session(session)
+    .lean();
+
+const previousReturned = previousReturnAllocations.reduce(
+  (total, allocation) =>
+    total + Number(allocation.amount || 0),
+  0
+);
+
+const previousRemaining = Math.max(
+  0,
+  Math.round(
+    (
       Number(previousSale.total_amount || 0) -
-        previousPaid
-    );
+      previousPaid -
+      previousReturned
+    ) * 100
+  ) / 100
+);
+
 
     previousInvoicesOutstanding +=
       previousRemaining;
   }
 
-  previousOutstanding =
-    remainingOpeningBalance +
-    previousInvoicesOutstanding;
+
+
+
+previousOutstanding = Math.max(
+  0,
+  Math.round(
+    (
+      remainingOpeningBalance +
+      previousInvoicesOutstanding
+    ) * 100
+  ) / 100
+);
+
+
 }
 
 // --------------------------------
@@ -242,10 +319,32 @@ if (sale) {
     0
   );
 
-  currentRemaining = Math.max(
-    0,
-    Number(sale.total_amount || 0) - currentAlreadyPaid
-  );
+
+const currentReturnAllocations =
+  await CustomerReturnAllocation.find({
+    company_id: companyId,
+    sale_id: sale._id,
+  })
+    .session(session)
+    .lean();
+
+const currentAlreadyReturned = currentReturnAllocations.reduce(
+  (total, allocation) =>
+    total + Number(allocation.amount || 0),
+  0
+);
+
+currentRemaining = Math.max(
+  0,
+  Math.round(
+    (
+      Number(sale.total_amount || 0) -
+      currentAlreadyPaid -
+      currentAlreadyReturned
+    ) * 100
+  ) / 100
+);
+
 }
 
 // --------------------------------
@@ -339,10 +438,17 @@ if (
     0
   );
 
-  const remainingOpeningBalance = Math.max(
-    0,
-    originalOpeningBalance - openingBalancePaid
-  );
+const remainingOpeningBalance = Math.max(
+  0,
+  Math.round(
+    (
+      originalOpeningBalance -
+      openingBalancePaid -
+      openingBalanceReturnAmount
+    ) * 100
+  ) / 100
+);
+
 
   openingBalancePayment = Math.min(
     remainingPayment,
@@ -385,16 +491,38 @@ const previousSales = await Sale.find({
         .session(session)
         .lean();
 
-    const previousPaid = previousAllocations.reduce(
-      (total, allocation) =>
-        total + Number(allocation.amount || 0),
-      0
-    );
 
-    const previousRemaining = Math.max(
-      0,
-      Number(previousSale.total_amount || 0) - previousPaid
-    );
+const previousPaid = previousAllocations.reduce(
+  (total, allocation) =>
+    total + Number(allocation.amount || 0),
+  0
+);
+
+const previousReturnAllocations =
+  await CustomerReturnAllocation.find({
+    company_id: companyId,
+    sale_id: previousSale._id,
+  })
+    .session(session)
+    .lean();
+
+const previousReturned = previousReturnAllocations.reduce(
+  (total, allocation) =>
+    total + Number(allocation.amount || 0),
+  0
+);
+
+const previousRemaining = Math.max(
+  0,
+  Math.round(
+    (
+      Number(previousSale.total_amount || 0) -
+      previousPaid -
+      previousReturned
+    ) * 100
+  ) / 100
+);
+
 
     if (previousRemaining <= 0) continue;
 
@@ -412,16 +540,127 @@ const previousSales = await Sale.find({
   }
 }
 
+let netOutstandingBeforePayment = null;
+
     // --------------------------------
     // 8. PAYMENT CANNOT EXCEED TOTAL
     // --------------------------------
 
-    if (remainingPayment > 0.000001) {
-      return res.status(400).json({
-        success: false,
-        message: "Payment cannot exceed total outstanding amount",
-      });
-    }
+ 
+if (
+  customer &&
+  company.payment_mode === "CREDIT"
+) {
+  const allCustomerSales = await Sale.find({
+    company_id: companyId,
+    customer_id: customer._id,
+  })
+    .session(session)
+    .lean();
+
+  let totalInvoiceOutstanding = 0;
+
+  for (const customerSale of allCustomerSales) {
+    const allocations = await PaymentAllocation.find({
+      company_id: companyId,
+      sale_id: customerSale._id,
+    })
+      .session(session)
+      .lean();
+
+    const totalPaid = allocations.reduce(
+      (sum, allocation) =>
+        sum + Number(allocation.amount || 0),
+      0
+    );
+
+ 
+const saleReturnAllocations =
+  await CustomerReturnAllocation.find({
+    company_id: companyId,
+    sale_id: customerSale._id,
+  })
+    .session(session)
+    .lean();
+
+const totalReturned = saleReturnAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
+  0
+);
+
+totalInvoiceOutstanding += Math.max(
+  0,
+  Math.round(
+    (
+      Number(customerSale.total_amount || 0) -
+      totalPaid -
+      totalReturned
+    ) * 100
+  ) / 100
+);
+
+  }
+
+  const originalOpeningBalance = Number(
+    customer.opening_balance || 0
+  );
+
+  const openingBalancePayments = await CustomerLedger.find({
+    company_id: companyId,
+    customer_id: customer._id,
+    type: "PAYMENT",
+    sale_id: null,
+    description: "Payment against opening balance",
+  })
+    .session(session)
+    .lean();
+
+  const openingBalancePaid = openingBalancePayments.reduce(
+    (sum, entry) => sum + Number(entry.credit || 0),
+    0
+  );
+
+
+const remainingOpeningBalance = Math.max(
+  0,
+  Math.round(
+    (
+      originalOpeningBalance -
+      openingBalancePaid -
+      openingBalanceReturnAmount
+    ) * 100
+  ) / 100
+);
+
+
+
+const netOutstanding = Math.max(
+  0,
+  Math.round(
+    (
+      remainingOpeningBalance +
+      totalInvoiceOutstanding
+    ) * 100
+  ) / 100
+);
+
+  netOutstandingBeforePayment = netOutstanding;
+
+  if (paymentAmount > netOutstanding + 0.000001) {
+    return res.status(400).json({
+      success: false,
+      message: "Payment cannot exceed total outstanding amount after returns",
+    });
+  }
+}
+
+if (remainingPayment > 0.000001) {
+  return res.status(400).json({
+    success: false,
+    message: "Payment cannot exceed total outstanding amount",
+  });
+}
 
     // --------------------------------
     // 9. CREATE PAYMENT
@@ -524,14 +763,35 @@ if (sale) {
   currentPaymentAmount =
     Number(currentPaymentAllocation?.amount || 0);
 
-  newPaidAmount =
-    currentAlreadyPaid + currentPaymentAmount;
 
-  newRemainingAmount = Math.max(
-    0,
-    Number(sale.total_amount || 0) -
-      newPaidAmount
+const currentReturnAllocationsAfterPayment =
+  await CustomerReturnAllocation.find({
+    company_id: companyId,
+    sale_id: sale._id,
+  })
+    .session(session)
+    .lean();
+
+const currentReturnedAfterPayment =
+  currentReturnAllocationsAfterPayment.reduce(
+    (total, allocation) =>
+      total + Number(allocation.amount || 0),
+    0
   );
+
+
+
+newRemainingAmount = Math.max(
+  0,
+  Math.round(
+    (
+      Number(sale.total_amount || 0) -
+      newPaidAmount -
+      currentReturnedAfterPayment
+    ) * 100
+  ) / 100
+);
+
 
   status = "UNPAID";
 
@@ -601,12 +861,22 @@ total_paid:
   paymentAmount,
 
 remaining_outstanding:
-  Math.max(
-    0,
-    previousOutstanding +
-      Number(sale?.total_amount || 0) -
-      paymentAmount
-  ),
+  customer && company.payment_mode === "CREDIT"
+    ? Math.max(
+        0,
+        Number(
+          (
+            (netOutstandingBeforePayment ?? 0) -
+            paymentAmount
+          ).toFixed(2)
+        )
+      )
+    : Math.max(
+        0,
+        previousOutstanding +
+          Number(sale?.total_amount || 0) -
+          paymentAmount
+      ),
 
 paid_amount: newPaidAmount,
 

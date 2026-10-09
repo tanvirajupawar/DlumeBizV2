@@ -22,6 +22,8 @@ import {
   fetchCustomerPayments,
 } from "../../api/customer";
 
+import { fetchCustomerReturns } from "../../api/customerReturn";
+
 const SUMMARY_PANEL_WIDTH = 380;
 const DANGER = "#DC2626";
 
@@ -77,10 +79,27 @@ const itemsOf = (item) =>
   Array.isArray(item.items) ? item.items : Array.isArray(item.details) ? item.details : [];
 
 const itemName = (d) => {
-  const base = d.product_name || d.product_id?.product || d.item_name || "-";
-  const type = d.type || d.product_id?.type;
+  if (!d || typeof d !== "object") return "-";
+
+  const product =
+    d.product_id && typeof d.product_id === "object"
+      ? d.product_id
+      : null;
+
+  const base =
+    d.product_name ||
+    product?.product ||
+    d.item_name ||
+    d.name ||
+    d.product ||
+    d.description ||
+    "-";
+
+  const type = d.type || product?.type;
+
   return type ? `${base} (${type})` : base;
 };
+
 
 /**
  * Customer account (ledger) — table style.
@@ -127,21 +146,29 @@ export default function CustomerAccountScreen({
     const loadAccount = async () => {
       try {
         setLoading(true);
-        const [customerRes, invoicesRes, paymentsRes] = await Promise.all([
-          fetchCustomer(customerId).catch((err) => {
-            console.log("❌ CUSTOMER FETCH ERROR:", err?.response?.data || err?.message);
-            return null;
-          }),
-          fetchCustomerInvoices(customerId).catch((err) => {
-            console.log("❌ INVOICE FETCH ERROR:", err?.response?.data || err?.message);
-            return null;
-          }),
-          fetchCustomerPayments(customerId).catch((err) => {
-            console.log("❌ PAYMENT FETCH ERROR:", err?.response?.data || err?.message);
-            return null;
-          }),
-        ]);
-
+      const [
+  customerRes,
+  invoicesRes,
+  paymentsRes,
+  returnsRes,
+] = await Promise.all([
+  fetchCustomer(customerId).catch((err) => {
+    console.log("❌ CUSTOMER FETCH ERROR:", err?.response?.data || err?.message);
+    return null;
+  }),
+  fetchCustomerInvoices(customerId).catch((err) => {
+    console.log("❌ INVOICE FETCH ERROR:", err?.response?.data || err?.message);
+    return null;
+  }),
+  fetchCustomerPayments(customerId).catch((err) => {
+    console.log("❌ PAYMENT FETCH ERROR:", err?.response?.data || err?.message);
+    return null;
+  }),
+  fetchCustomerReturns(customerId).catch((err) => {
+    console.log("❌ CUSTOMER RETURNS FETCH ERROR:", err?.response?.data || err?.message);
+    return null;
+  }),
+]);
         if (!active) return;
 
         const customerData = customerRes?.data?.data ?? customerRes?.data ?? null;
@@ -151,6 +178,8 @@ export default function CustomerAccountScreen({
 
       const invoices = invoicesRes?.data?.data ?? invoicesRes?.data ?? [];
 const payments = paymentsRes?.data?.data ?? paymentsRes?.data ?? [];
+
+const returns = returnsRes?.data?.data ?? returnsRes?.data ?? [];
 
 // ─────────────────────────────────────────────
 // OPENING BALANCE
@@ -187,6 +216,11 @@ const paymentEntries = (Array.isArray(payments) ? payments : []).map((x) => ({
   type: "payment",
 }));
 
+const returnEntries = (Array.isArray(returns) ? returns : []).map((x) => ({
+  ...x,
+  type: "return",
+}));
+
 // Always create the opening row when there is an opening balance
 const openingEntry =
   openingBalance !== 0
@@ -219,11 +253,11 @@ const openingEntry =
     : [];
 
 console.log("🟢 OPENING ENTRY:", openingEntry);
-
 setAccount([
   ...openingEntry,
   ...invoiceEntries,
   ...paymentEntries,
+  ...returnEntries,
 ]);
       } catch (err) {
         console.log("❌ CUSTOMER ACCOUNT ERROR:", err?.response?.data || err?.message);
@@ -259,9 +293,15 @@ console.log(
     });
     let bal = 0;
     return chrono.map((e, idx) => {
-      const isPay = e.type === "payment";
-      const amt = isOpening(e) ? openingAmount(e) : isPay ? Number(e.amount || 0) : totalOf(e);
-      bal += isPay ? -amt : amt;
+   const isCredit = e.type === "payment" || e.type === "return";
+
+const amt = isOpening(e)
+  ? openingAmount(e)
+  : isCredit
+  ? Number(e.amount ?? e.total_amount ?? 0)
+  : totalOf(e);
+
+bal += isCredit ? -amt : amt;
       return {
         ...e,
         _key: String(e._id || e.id || `${e.type}-${idx}`),
@@ -288,58 +328,71 @@ console.log(
     [withBalance, selectedDate]
   );
 
- const outstanding = useMemo(() => {
+const outstanding = useMemo(() => {
   const inv = account
-    .filter((i) => i.type !== "payment")
+    .filter((i) => i.type !== "payment" && i.type !== "return")
     .reduce(
       (sum, i) =>
         sum + (isOpening(i) ? openingAmount(i) : totalOf(i)),
       0
     );
 
-  const pay = account
-    .filter((i) => i.type === "payment")
+  const credits = account
+    .filter((i) => i.type === "payment" || i.type === "return")
     .reduce(
-      (sum, i) => sum + Number(i.amount || 0),
+      (sum, i) => sum + Number(i.amount ?? i.total_amount ?? 0),
       0
     );
 
-  return Math.max(0, inv - pay);
+  return Math.max(0, inv - credits);
 }, [account]);
 
   // ── Summary rows (respect date filter) ──
-  const summaryRows = useMemo(
-    () =>
-      ledger
-        .filter((i) => !isOpening(i))
-        .map((i) =>
-          i.type === "payment"
-            ? {
-                id: i._key,
-                kind: "payment",
-                date: entryDate(i),
-                title: `Payment${i.payment_method ? " \u2022 " + i.payment_method : ""}`,
-                note: i.remarks || i.note || "",
-                amount: Number(i.amount || 0),
-              }
-            : {
-                id: i._key,
-                kind: "invoice",
-                date: entryDate(i),
-                title: i.invoice_no || i.invoiceNo || "Invoice",
-                note: "",
-                amount: totalOf(i),
-              }
-        ),
-    [ledger]
-  );
+const summaryRows = useMemo(
+  () =>
+    ledger
+      .filter((i) => !isOpening(i))
+      .map((i) => {
+        if (i.type === "payment") {
+          return {
+            id: i._key,
+            kind: "payment",
+            date: entryDate(i),
+            title: `Payment${i.payment_method ? " • " + i.payment_method : ""}`,
+            note: i.remarks || i.note || "",
+            amount: Number(i.amount || 0),
+          };
+        }
+
+        if (i.type === "return") {
+          return {
+            id: i._key,
+            kind: "return",
+            date: entryDate(i),
+            title: i.return_no || "Customer Return",
+            note: i.description || "",
+            amount: Number(i.total_amount ?? i.amount ?? 0),
+          };
+        }
+
+        return {
+          id: i._key,
+          kind: "invoice",
+          date: entryDate(i),
+          title: i.invoice_no || i.invoiceNo || "Invoice",
+          note: "",
+          amount: totalOf(i),
+        };
+      }),
+  [ledger]
+);
 
   const totals = useMemo(
     () =>
       summaryRows.reduce(
         (acc, r) => {
-          if (r.kind === "payment") acc.received += r.amount;
-          else acc.invoiced += r.amount;
+        if (r.kind === "invoice") acc.invoiced += r.amount;
+else acc.received += r.amount;
           return acc;
         },
         { invoiced: 0, received: 0 }
@@ -431,7 +484,7 @@ console.log(
               <td>${esc(r.date)}</td>
               <td>${esc(r.title)}${r.note ? " \u2013 " + esc(r.note) : ""}</td>
               <td class="r">${r.kind === "invoice" ? money(r.amount) : ""}</td>
-              <td class="r">${r.kind === "payment" ? money(r.amount) : ""}</td>
+            <td class="r">${r.kind === "payment" || r.kind === "return" ? money(r.amount) : ""}</td>
             </tr>`
           )
           .join("")}
@@ -476,16 +529,21 @@ console.log(
     let sub = "";
     if (opening) {
       ref = "Opening Balance";
-    } else if (isPay) {
-      ref = "Payment Received";
-      sub = [item.payment_method, item.remarks || item.note].filter(Boolean).join(" \u2022 ");
-    } else {
-      ref = item.invoice_no || item.invoiceNo || "Invoice";
-      sub = expandable
-        ? `${details.length} item${details.length > 1 ? "s" : ""}`
-        : "";
-    }
 
+} else if (isPay) {
+  ref = "Payment Received";
+  sub = [item.payment_method, item.remarks || item.note].filter(Boolean).join(" • ");
+} else if (item.type === "return") {
+  ref = item.return_no || "Customer Return";
+  sub = expandable
+    ? `${details.length} item${details.length > 1 ? "s" : ""}`
+    : item.description || "";
+} else {
+  ref = item.invoice_no || item.invoiceNo || "Invoice";
+  sub = expandable
+    ? `${details.length} item${details.length > 1 ? "s" : ""}`
+    : "";
+}
     const date = opening
       ? fmtDate(item.order_date || item.date)
       : fmtDate(entryDate(item));
@@ -502,8 +560,13 @@ console.log(
           <View style={styles.cRef}>
             <View style={styles.refLine}>
               <Text
-                style={[styles.tdStrong, !isPay && !opening && { color: COLORS.primary }]}
-                numberOfLines={1}
+style={[
+  styles.tdStrong,
+  !isPay &&
+    !opening && {
+      color: item.type === "return" ? DANGER : COLORS.primary,
+    },
+]}                numberOfLines={1}
               >
                 {ref}
               </Text>
@@ -565,7 +628,7 @@ console.log(
             {details.map((d, i) => (
               <View key={i} style={styles.subRow}>
                 <Text style={[styles.subText, styles.sName]} numberOfLines={2}>
-                  {itemName(d)}
+              {itemName(d)}
                 </Text>
                 <Text style={[styles.subMuted, styles.sBag]}>
                   {d.bags && Number(d.bags) > 0 ? `${d.bags}×${d.units}` : "—"}

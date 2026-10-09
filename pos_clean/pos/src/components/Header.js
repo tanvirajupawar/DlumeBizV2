@@ -9,7 +9,9 @@
   } from "react-native";
   import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
   import { COLORS, SPACING, RADIUS } from "./Colors";
+  import HeaderButton from "./HeaderButton";
 
+  
   /**
    * Dark-navy top header. Left region hosts menu + order dropdown + search/scan
    * tools. Right region hosts (optional `children`, e.g. a filter dropdown) +
@@ -231,25 +233,12 @@ const closeSearch = () => {
           )}
 
           {/* Add button — right-most corner */}
-     {!hideAdd && (
-  <Pressable
+{!hideAdd && onAddPress && (
+  <HeaderButton
+    title={addLabel || "Add"}
     onPress={onAddPress}
-    style={styles.addBtn}
-    hitSlop={8}
     testID="header-add-button"
-  >
-    <Feather
-      name="plus"
-      size={22}
-      color={COLORS.textOnDark}
-    />
-
-    {!!addLabel && (
-      <Text style={styles.addBtnText}>
-        {addLabel}
-      </Text>
-    )}
-  </Pressable>
+  />
 )}
         </View>
       </View>
@@ -379,21 +368,7 @@ const closeSearch = () => {
       padding: 0,
     },
 
-    addBtn: {
-  minHeight: 52,
-  paddingHorizontal: 12,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  borderRadius: RADIUS.md,
-  gap: 5,
-},
-
-addBtnText: {
-  color: COLORS.textOnDark,
-  fontSize: 17,
-  fontWeight: "700",
-},
+ 
 leftTitle: {
   color: COLORS.textOnDark,
   fontSize: 22,

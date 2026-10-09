@@ -225,7 +225,7 @@ const ProductFormScreen = ({
       });
 
       const response = await fetch(
-        "https://back.dlumebiz.com/api/upload/product-image",
+        "http://192.168.1.14:3001/api/upload/product-image",
         {
           method: "POST",
           headers: {

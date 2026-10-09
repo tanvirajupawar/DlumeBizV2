@@ -16,13 +16,16 @@ const customerLedgerSchema = new mongoose.Schema(
       index: true,
     },
 
+ 
     // SALE = customer owes money
     // PAYMENT = customer paid money
+    // RETURN = returned goods reduce customer outstanding
     type: {
       type: String,
-      enum: ["SALE", "PAYMENT"],
+      enum: ["SALE", "PAYMENT", "RETURN"],
       required: true,
     },
+
 
     // For SALE entries
     sale_id: {

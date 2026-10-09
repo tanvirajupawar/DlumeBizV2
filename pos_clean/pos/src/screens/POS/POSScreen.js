@@ -36,6 +36,7 @@ import CustomerFormScreen from "../Customer/CustomerFormScreen";
 import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
+import { createCustomerReturn } from "../../api/customerReturn";
 
 import { useEffect } from "react";
 import { fetchProducts } from "../../api/product";
@@ -93,14 +94,21 @@ const [paymentFetching, setPaymentFetching] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [cartItems, setCartItems] = useState([]);
+  const [isReturnMode, setIsReturnMode] = useState(false);
+const [returnCartItems, setReturnCartItems] = useState([]);
+const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
   const [managedItem, setManagedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
 const [customerListSearch, setCustomerListSearch] = useState("");
 
-  const handleAddCalculatorItem = (item) => {
+const handleAddCalculatorItem = (item) => {
+  if (isReturnMode) {
+    setReturnCartItems((prev) => [...prev, item]);
+    return;
+  }
+
   setCartItems((prev) => [...prev, item]);
 };
-
   // ── Instant paint from the in-memory cache ────────────────────────────
   // getCachedSync only checks the in-memory Map in utils/cache.js (no
   // AsyncStorage round-trip), so if this screen has already fetched once
@@ -152,14 +160,15 @@ const filteredCustomerResults = useMemo(() => {
 
       return name.includes(q) || phone.includes(q);
     })
-    .map((c) => ({
-      id: c._id || c.id,
-      name:
-        c.customer_name ||
-        `${c.first_name || ""} ${c.last_name || ""}`.trim(),
-      phone: c.contact_no_1 || "",
-      _raw: c,
-    }));
+  .map((c) => ({
+  id: c._id || c.id,
+  name:
+    c.customer_name ||
+    `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+  phone: c.contact_no_1 || "",
+  company_name: c.company_name || "",
+  _raw: c,
+}));
 }, [customers, customerSearchText]);
 
 const handleOpenCustomerSearch = () => {
@@ -991,20 +1000,26 @@ const handleProductPress = (product, qtyToAdd = 1) => {
 
 
 
-  const handleUpdateCartItem = (itemId, updates) => {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              qty: updates.qty,
-              price: updates.price,
-              description: updates.description,
-            }
-          : item
-      )
-    );
-  };
+
+const handleUpdateCartItem = (itemId, updates) => {
+  const updateCart = isReturnMode
+    ? setReturnCartItems
+    : setCartItems;
+
+  updateCart((prev) =>
+    prev.map((item) =>
+      item.id === itemId
+        ? {
+            ...item,
+            qty: updates.qty,
+            price: updates.price,
+            description: updates.description,
+          }
+        : item
+    )
+  );
+};
+
 
   const handleOpenManageItem = (item) => {
     setManagedItem(item);
@@ -1014,27 +1029,56 @@ const handleProductPress = (product, qtyToAdd = 1) => {
     setManagedItem(null);
   };
 
-  const handleIncrement = (item) =>
-    setCartItems((prev) =>
-      prev.map((i) => (i.id === item.id ? { ...i, qty: i.qty + 1 } : i))
-    );
 
-  const handleDecrement = (item) =>
-    setCartItems((prev) =>
-      prev
-        .map((i) => (i.id === item.id ? { ...i, qty: i.qty - 1 } : i))
-        .filter((i) => i.qty > 0)
-    );
+const handleIncrement = (item) => {
+  const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
-  const handleRemove = (item) =>
-    setCartItems((prev) => prev.filter((i) => i.id !== item.id));
+  updateCart((prev) =>
+    prev.map((i) =>
+      i.id === item.id ? { ...i, qty: (Number(i.qty) || 0) + 1 } : i
+    )
+  );
+};
 
-  const handleClearCart = () => setCartItems([]);
+const handleDecrement = (item) => {
+  const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
-  const { subtotal } = useMemo(() => {
-    const sub = cartItems.reduce((sum, i) => sum + i.qty * i.price, 0);
-    return { itemsCount: cartItems.length, subtotal: sub };
-  }, [cartItems]);
+  updateCart((prev) =>
+    prev
+      .map((i) =>
+        i.id === item.id
+          ? { ...i, qty: (Number(i.qty) || 0) - 1 }
+          : i
+      )
+      .filter((i) => (Number(i.qty) || 0) > 0)
+  );
+};
+
+const handleRemove = (item) => {
+  const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
+
+  updateCart((prev) => prev.filter((i) => i.id !== item.id));
+};
+
+const handleClearCart = () => {
+  if (isReturnMode) {
+    setReturnCartItems([]);
+  } else {
+    setCartItems([]);
+  }
+};
+
+
+const activeCartItems = isReturnMode ? returnCartItems : cartItems;
+
+const { subtotal } = useMemo(() => {
+  const sub = activeCartItems.reduce(
+    (sum, i) => sum + (Number(i.qty) || 0) * (Number(i.price) || 0),
+    0
+  );
+
+  return { itemsCount: activeCartItems.length, subtotal: sub };
+}, [activeCartItems]);
 
 const discount = 0;
 const tax = 0;
@@ -1230,7 +1274,9 @@ useEffect(() => {
   hideSearch={isCalculatorMode && activeNav !== "customers"}
   hideScanner={isCalculatorMode || activeNav === "customers"}
   hideCustomer={activeNav === "customers"}
-  hideMore={activeNav === "customers"}
+  hideMore={activeNav === "customers" || isCalculatorMode}
+  hideHeldCarts={isCalculatorMode}
+  hideViewHeldCarts={isCalculatorMode}
   hideAdd={activeNav !== "customers"}
   addLabel={activeNav === "customers" ? "Add Customer" : undefined}
 onAddPress={
@@ -1273,24 +1319,44 @@ searchPlaceholder={
       isEditingProduct={!!productFormState?.product}
       editingProductName={productFormState?.product?.product || ""}
       itemCount={activeNav === "inventory" ? products.length : 0}
-      rightExtra={
-        activeNav === "cart" && heldCarts.length > 0 ? (
-          <TouchableOpacity
-            style={styles.heldCartBtn}
-            onPress={() => setHeldCartsSheetVisible(true)}
-            hitSlop={8}
-          >
-            <MaterialCommunityIcons
-              name="cart-arrow-down"
-              size={24}
-              color={COLORS.blue}
-            />
-            <View style={styles.heldCountBadge}>
-              <Text style={styles.heldCountText}>{heldCarts.length}</Text>
-            </View>
-          </TouchableOpacity>
-        ) : null
-      }
+ 
+rightExtra={
+  activeNav === "cart" && isCalculatorMode ? (
+    <TouchableOpacity
+      style={[styles.returnBtn, isReturnMode && styles.returnBtnActive]}
+      onPress={() => setIsReturnMode((prev) => !prev)}
+      activeOpacity={0.85}
+      hitSlop={8}
+    >
+      <MaterialCommunityIcons
+        name={isReturnMode ? "close" : "undo-variant"}
+        size={20}
+        color={isReturnMode ? "#FFFFFF" : COLORS.blue}
+      />
+      <Text style={[styles.returnBtnText, isReturnMode && styles.returnBtnTextActive]}>
+        {isReturnMode ? "Cancel Return" : "Return"}
+      </Text>
+    </TouchableOpacity>
+  ) : activeNav === "cart" &&
+    !isCalculatorMode &&
+    heldCarts.length > 0 ? (
+    <TouchableOpacity
+      style={styles.heldCartBtn}
+      onPress={() => setHeldCartsSheetVisible(true)}
+      hitSlop={8}
+    >
+      <MaterialCommunityIcons
+        name="cart-arrow-down"
+        size={24}
+        color={COLORS.blue}
+      />
+      <View style={styles.heldCountBadge}>
+        <Text style={styles.heldCountText}>{heldCarts.length}</Text>
+      </View>
+    </TouchableOpacity>
+  ) : null
+}
+
     />
   )}
 </View>
@@ -1314,7 +1380,7 @@ searchPlaceholder={
 
                 <View style={styles.rightPane}>
                   <CartPanel
-                    cartItems={cartItems}
+                   cartItems={activeCartItems}
                     onClearCart={handleClearCart}
                     onIncrement={handleIncrement}
                     onDecrement={handleDecrement}
@@ -1329,8 +1395,126 @@ searchPlaceholder={
                       setSelectedCustomer(customer || WALK_IN_CUSTOMER)
                     }
                     grandTotal={grandTotal}
-                    checkoutDisabled={cartItems.length === 0}
-                  onCheckout={() => {
+                  checkoutDisabled={activeCartItems.length === 0}
+checkoutLabel={isReturnMode ? "RETURN" : "Checkout"}
+isReturnMode={isReturnMode}
+
+onCheckout={async () => {
+  if (isReturnMode) {
+    if (isSubmittingReturn) return;
+
+    if (
+      !selectedCustomer ||
+      selectedCustomer === WALK_IN_CUSTOMER
+    ) {
+      Alert.alert(
+        "Select Customer",
+        "Please select a customer before processing a return."
+      );
+      return;
+    }
+
+    if (!activeCartItems.length) {
+      Alert.alert(
+        "Empty Return",
+        "Please add items to the return cart."
+      );
+      return;
+    }
+
+    const customerId =
+      selectedCustomer?._id || selectedCustomer?.id;
+
+    if (!customerId) {
+      Alert.alert(
+        "Invalid Customer",
+        "Please select a valid customer."
+      );
+      return;
+    }
+
+ 
+const returnItems = activeCartItems.map((item) => ({
+  description:
+    item.product_name ||
+    item.product ||
+    item.item_name ||
+    item.name ||
+    item.description ||
+    "Calculator item",
+  product_name:
+    item.product_name ||
+    item.product ||
+    item.item_name ||
+    item.name ||
+    item.description ||
+    "Calculator item",
+  qty: Number(item.qty) || 0,
+  price: Number(item.price) || 0,
+}));
+
+
+    const hasInvalidItems = returnItems.some(
+      (item) =>
+        item.qty <= 0 ||
+        item.price < 0 ||
+        !Number.isFinite(item.qty) ||
+        !Number.isFinite(item.price)
+    );
+
+    if (hasInvalidItems) {
+      Alert.alert(
+        "Invalid Items",
+        "Please check the quantity and price of each item."
+      );
+      return;
+    }
+
+    setIsSubmittingReturn(true);
+
+    try {
+      const response = await createCustomerReturn({
+        customer_id: customerId,
+        items: returnItems,
+      });
+
+      const result = response?.data ?? response;
+
+      Alert.alert(
+        "Return Successful",
+        `Return No: ${result.return_no}\n` +
+          `Amount: ₹${Number(
+            result.total_amount || 0
+          ).toFixed(2)}\n` +
+          `Outstanding: ₹${Number(
+            result.outstanding_after_return || 0
+          ).toFixed(2)}`,
+        [
+          {
+            text: "OK",
+           onPress: async () => {
+  setReturnCartItems([]);
+  await loadCustomers({ silent: true });
+},
+          },
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        "Return Failed",
+        error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Unable to process the return. Please try again."
+      );
+    } finally {
+      setIsSubmittingReturn(false);
+    }
+
+    return;
+  }
+
+  // Existing Sale checkout — unchanged
   const isCreditMode =
     user?.company?.payment_mode === "CREDIT";
 
@@ -1354,6 +1538,7 @@ searchPlaceholder={
     });
   }
 }}
+
                   />
                 </View>
               </>
@@ -1600,5 +1785,19 @@ contentWrapper: {
     flex: 4,
   },
   fullContent: { flex: 1 },
+    returnBtn: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: COLORS.blue,
+    backgroundColor: "transparent",
+  },
+  returnBtnActive: { backgroundColor: "#DC2626", borderColor: "#DC2626" },
+  returnBtnText: { fontSize: 14, fontWeight: "700", color: COLORS.blue },
+  returnBtnTextActive: { color: "#FFFFFF" },
  
 });

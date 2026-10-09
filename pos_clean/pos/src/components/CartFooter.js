@@ -28,9 +28,11 @@ export default function CartFooter({
   subtotal = 0,
   total = 0,
   isEmpty = true,
-  onClear,       
+  onClear,
   onHold,
   onCheckout,
+  checkoutLabel = "Checkout",
+   isReturnMode = false,  
   onToggleSummary,
 }) {
 const [expanded, setExpanded] = useState(false);
@@ -97,17 +99,21 @@ const [expanded, setExpanded] = useState(false);
   <Feather name="shopping-cart" size={22} color={COLORS.danger} />
 </Pressable>
 
-        <Pressable
+            <Pressable
           onPress={onCheckout}
           disabled={isEmpty}
           style={[
             styles.checkoutBtn,
-            isEmpty && styles.checkoutBtnDisabled,
+            isReturnMode && styles.checkoutBtnReturn,
+            isEmpty &&
+              (isReturnMode
+                ? styles.checkoutBtnReturnDisabled
+                : styles.checkoutBtnDisabled),
           ]}
           testID="cart-checkout-button"
         >
           <Text style={styles.checkoutText}>
-            {isEmpty ? "Save Order" : "Checkout"}
+            {isReturnMode ? checkoutLabel : isEmpty ? "Save Order" : checkoutLabel}
           </Text>
           <Text style={styles.checkoutAmount}>{formatPrice(total)}</Text>
         </Pressable>
@@ -181,6 +187,12 @@ const styles = StyleSheet.create({
   },
   checkoutBtnDisabled: {
     backgroundColor: COLORS.blueDisabled,
+  },
+    checkoutBtnReturn: {
+    backgroundColor: "#DC2626",
+  },
+  checkoutBtnReturnDisabled: {
+    backgroundColor: "#FCA5A5",
   },
   checkoutText: {
     color: "#fff",

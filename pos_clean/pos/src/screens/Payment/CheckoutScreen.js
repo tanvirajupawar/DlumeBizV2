@@ -68,25 +68,29 @@ const [discount, setDiscount] = useState(
 const [note, setNote] = useState("");
 const [processingMethod, setProcessingMethod] = useState(null);
 
-const isCreditSummaryFlow = !!creditSummary;
 
-const finalPaymentAmount = isCreditSummaryFlow
-  ? amountToPay
-  : currentInvoiceAmount;
+const isCreditSummaryFlow = !!creditSummary;
 
 const discountValue = isCreditSummaryFlow
   ? Number(incomingDiscount) || 0
-  : Math.min(
-      Number(discount) || 0,
-      Number(finalPaymentAmount) || 0
+  : Math.max(
+      0,
+      Math.min(
+        Number(discount) || 0,
+        Number(grandTotal) || 0
+      )
     );
 
 const payableTotal = isCreditSummaryFlow
-  ? Number(creditSummary?.total_payable || currentInvoiceAmount)
+  ? Number(creditSummary?.total_payable ?? currentInvoiceAmount)
   : Math.max(
       0,
-      Number(grandTotal || 0) - discountValue
+      (Number(grandTotal) || 0) - discountValue
     );
+
+const finalPaymentAmount = isCreditSummaryFlow
+  ? amountToPay
+  : payableTotal;
 
 
 
@@ -164,9 +168,7 @@ let actualPaidAmount = 0;
 
 const paymentPayload = {
   sale_id: sale.sale_id,
-  amount: isCreditSummaryFlow
-    ? amountToPay
-    : currentInvoiceAmount,
+amount: isCreditSummaryFlow ? amountToPay : payableTotal,
   payment_method:
     paymentId === "cash"
       ? "CASH"

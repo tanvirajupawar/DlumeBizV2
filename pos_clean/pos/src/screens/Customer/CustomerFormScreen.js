@@ -7,14 +7,19 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   Modal,
   FlatList,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
+import HeaderButton from "../../components/HeaderButton";
+
+
+
+
 
 const MAX_CONTENT_WIDTH = 720;
 
@@ -130,6 +135,17 @@ const {
   opening_balance = "",
 } = values;
 
+ const [saving, setSaving] = useState(false);          
+
+  const handleSave = async () => {                      
+    try {
+      setSaving(true);
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const [stateModalVisible, setStateModalVisible] = useState(false);
   const [stateQuery, setStateQuery] = useState("");
 
@@ -150,9 +166,12 @@ const {
   };
 
   return (
-    <SafeAreaView style={styles.safe} testID="customer-form-safe-area">
-      {/* Header */}
-      <View style={styles.header}>
+  <SafeAreaView
+  style={styles.safe}
+  edges={["top", "bottom"]}
+  testID="customer-form-safe-area"
+>
+  <View style={styles.header}>
         <Pressable
           onPress={onBack}
           hitSlop={8}
@@ -162,21 +181,20 @@ const {
           <Ionicons name="arrow-back" size={24} color={COLORS.textOnDark} />
         </Pressable>
         <Text style={styles.headerTitle}>Add Customer</Text>
-        <Pressable
-          onPress={onSave}
-          hitSlop={8}
-          style={styles.saveBtn}
-          testID="customer-form-save-button"
-        >
-          <Text style={styles.saveText}>Save</Text>
-        </Pressable>
+      <HeaderButton
+  title="Save"
+  onPress={handleSave}
+  loading={saving}
+  testID="customer-form-save-button"
+/>
       </View>
 
-    <KeyboardAvoidingView
-  style={styles.keyboardContainer}
-  behavior={Platform.OS === "ios" ? "padding" : "height"}
-  keyboardVerticalOffset={0}
->
+<View style={styles.body}>
+  <KeyboardAvoidingView
+    style={styles.keyboardContainer}
+    behavior={Platform.OS === "ios" ? "padding" : "height"}
+    keyboardVerticalOffset={0}
+  >
 <ScrollView
   style={styles.scroll}
   contentContainerStyle={styles.scrollContent}
@@ -252,8 +270,11 @@ const {
             />
           </View>
         </View>
-      </ScrollView>
-        </KeyboardAvoidingView>
+   </ScrollView>
+</KeyboardAvoidingView>
+</View>
+
+{/* Select State bottom sheet */}
 
       {/* Select State bottom sheet */}
       <Modal
@@ -333,20 +354,19 @@ const {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-  },
+safe: {
+  flex: 1,
+  backgroundColor: COLORS.navyDeep,
+},
 
   // ── Header ──
-  header: {
-    height: 72,
-    paddingTop: 8,
-    backgroundColor: COLORS.navy,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: SPACING.lg,
-  },
+header: {
+  height: 64,
+  backgroundColor: COLORS.navy,
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: SPACING.lg,
+},
   headerIconBtn: {
     width: 36,
     height: 36,
@@ -368,7 +388,12 @@ const styles = StyleSheet.create({
     color: COLORS.textOnDark,
     fontSize: 16,
     fontWeight: "700",
-  },
+  },  
+  body: {
+  flex: 1,
+  width: "100%",
+  backgroundColor: COLORS.card,
+},
 
   // ── Scroll / sections ──
   keyboardContainer: {

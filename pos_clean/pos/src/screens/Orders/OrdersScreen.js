@@ -217,7 +217,7 @@ const mapInvoice = (inv, returnsBySalesId) => {
 
   const subTotal = items.reduce((s, it) => s + it.amount, 0);
   const grandTotal = totalAmount > 0 ? totalAmount : subTotal;
-  const discount = Number(inv.discount || 0);
+const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
   const tax = Number(inv.tax_amount || inv.tax || 0);
 
   return {
@@ -1156,48 +1156,38 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
   return (
     <View style={styles.detailWrap}>
       {/* Tabs */}
-      <View style={styles.tabRow}>
-        <TouchableOpacity
-          style={[
-            styles.tabBtn,
-            tab === "overview" && styles.tabBtnActive,
-          ]}
-          onPress={() => setTab("overview")}
-        >
-          <Text style={[styles.tabText, tab === "overview" && styles.tabTextActive]}>
-            Overview
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tabBtn,
-            tab === "payment-recieved" && styles.tabBtnActive,
-          ]}
-          onPress={() => setTab("payment-recieved")}
-        >
-          <Text style={[styles.tabText, tab === "payment-recieved" && styles.tabTextActive]}>
-            Payment Received
-          </Text>
-        </TouchableOpacity>
-        {!isCalculatorOrder && (
-          <TouchableOpacity
-            style={[
-              styles.tabBtn,
-              tab === "refunds" && styles.tabBtnActive,
-            ]}
-            onPress={() => setTab("refunds")}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                tab === "refunds" && styles.tabTextActive,
-              ]}
-            >
-              Refunds{orderReturns.length > 0 ? ` (${orderReturns.length})` : ""}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+     <View style={styles.tabRow}>
+  <TouchableOpacity
+    style={[
+      styles.tabBtn,
+      tab === "overview" && styles.tabBtnActive,
+    ]}
+    onPress={() => setTab("overview")}
+  >
+    <Text style={[styles.tabText, tab === "overview" && styles.tabTextActive]}>
+      Overview
+    </Text>
+  </TouchableOpacity>
+
+  {!isCalculatorOrder && (
+    <TouchableOpacity
+      style={[
+        styles.tabBtn,
+        tab === "refunds" && styles.tabBtnActive,
+      ]}
+      onPress={() => setTab("refunds")}
+    >
+      <Text
+        style={[
+          styles.tabText,
+          tab === "refunds" && styles.tabTextActive,
+        ]}
+      >
+        Refunds{orderReturns.length > 0 ? ` (${orderReturns.length})` : ""}
+      </Text>
+    </TouchableOpacity>
+  )}
+</View>
 
       <ScrollView
         style={styles.detailScroll}

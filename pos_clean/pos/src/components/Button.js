@@ -1,29 +1,23 @@
 import React from "react";
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-} from "react-native";
+import { TouchableOpacity, Text, StyleSheet } from "react-native";
+import Loader from "./Loader";
 
 export default function Button({
   title,
   onPress,
   loading = false,
+  loadingText,
   disabled = false,
 }) {
   return (
     <TouchableOpacity
-      style={[
-        styles.button,
-        (disabled || loading) && styles.disabled,
-      ]}
+      style={[styles.button, (disabled || loading) && styles.disabled]}
       activeOpacity={0.8}
       onPress={onPress}
       disabled={disabled || loading}
     >
       {loading ? (
-        <ActivityIndicator color="#fff" />
+        <Loader label={loadingText} />
       ) : (
         <Text style={styles.text}>{title}</Text>
       )}
