@@ -4,6 +4,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from "react-nati
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADIUS } from "./Colors";
 import CartFooter from "./CartFooter";
+import Loader from "./Loader";
 
 const formatPrice = (n) =>
   `₹${Number(n).toLocaleString("en-IN", {
@@ -187,6 +188,8 @@ export default function CartPanel({
   checkoutDisabled = false,
   checkoutLabel = "Checkout",
    isReturnMode = false, 
+   checkoutLoading = false,
+
   onCheckout,
 }) {
 
@@ -265,9 +268,10 @@ const itemLabel = item.isCalculatorItem
         checkoutDisabled={checkoutDisabled}
         onClear={onClearCart}
         onHold={onHoldCart}
-        checkoutLabel={checkoutLabel}
-         isReturnMode={isReturnMode} 
-        onCheckout={onCheckout}
+      checkoutLabel={checkoutLabel}
+isReturnMode={isReturnMode}
+checkoutLoading={checkoutLoading}
+onCheckout={onCheckout}
       />
     </View>
   );

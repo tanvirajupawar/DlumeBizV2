@@ -65,6 +65,15 @@ const saleSchema = new mongoose.Schema(
       default: null,
     },
 
+
+
+    
+previous_outstanding: {
+  type: Number,
+  default: 0,
+},
+
+
     // ============================================
     // AMOUNTS
     // ============================================

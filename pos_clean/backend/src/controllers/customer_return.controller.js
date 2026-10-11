@@ -425,34 +425,44 @@ export const getCustomerReturns = async (req, res) => {
     const companyId = req.user.company_id;
     const { customer_id } = req.query;
 
-    if (!customer_id || !mongoose.isValidObjectId(customer_id)) {
-      return res.status(400).json({
-        success: false,
-        message: "A valid customer_id is required",
-      });
+    // Always restrict returns to the authenticated company.
+    const filter = {
+      company_id: companyId,
+    };
+
+    // Preserve the existing customer-specific filtering.
+    if (customer_id) {
+      if (!mongoose.isValidObjectId(customer_id)) {
+        return res.status(400).json({
+          success: false,
+          message: "A valid customer_id is required",
+        });
+      }
+
+      const customer = await Customer.findOne({
+        _id: customer_id,
+        company_id: companyId,
+      }).select("_id");
+
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: "Customer not found",
+        });
+      }
+
+      filter.customer_id = customer._id;
     }
 
-    const customer = await Customer.findOne({
-      _id: customer_id,
-      company_id: companyId,
-    }).select("_id");
-
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
-    }
-
-    const returns = await CustomerReturn.find({
-      company_id: companyId,
-      customer_id: customer._id,
-    })
-      .sort({ return_date: 1, createdAt: 1 })
+    // Fetch returns newest first.
+    const returns = await CustomerReturn.find(filter)
+      .populate("customer_id")
+      .sort({ createdAt: -1, return_date: -1 })
       .lean();
 
     const returnIds = returns.map((item) => item._id);
 
+    // Fetch all return items in one query.
     const returnItems = returnIds.length
       ? await CustomerReturnItem.find({
           company_id: companyId,
@@ -472,14 +482,16 @@ export const getCustomerReturns = async (req, res) => {
       itemsByReturn.get(key).push(item);
     }
 
+    const data = returns.map((item) => ({
+      ...item,
+      type: "return",
+      amount: Number(item.total_amount || 0),
+      items: itemsByReturn.get(String(item._id)) || [],
+    }));
+
     return res.status(200).json({
       success: true,
-      data: returns.map((item) => ({
-        ...item,
-        type: "return",
-        amount: Number(item.total_amount || 0),
-        items: itemsByReturn.get(String(item._id)) || [],
-      })),
+      data,
     });
   } catch (error) {
     console.error("Get customer returns error:", error);

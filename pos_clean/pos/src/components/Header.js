@@ -44,7 +44,11 @@ export default function Header({
    onAddPress,
   heldCartsCount = 0,
   onViewHeldCartsPress,
+  
   rightExtra,
+  returnButton,
+  onReturnPress,
+  isReturnMode = false,
   searchInputRef,
   searchValue,
   onSearchChange,
@@ -98,6 +102,11 @@ const closeSearch = () => {
             <Ionicons name="arrow-back" size={28} color={COLORS.textOnDark} />
           </Pressable>
         )}
+
+
+
+
+
         {/* ▲ ADD THIS ▲ */}
 {leftContent ? (
   <View style={styles.leftContent}>
@@ -167,83 +176,128 @@ const closeSearch = () => {
 )}
 
           </View>
+
+          {returnButton && (
+  <View style={styles.returnButtonWrap}>
+    <Pressable
+      style={[
+        styles.returnBtn,
+        isReturnMode && styles.returnBtnActive,
+      ]}
+      onPress={onReturnPress}
+      hitSlop={8}
+      testID="header-return-button"
+    >
+      <MaterialCommunityIcons
+        name={isReturnMode ? "close" : "swap-horizontal"}
+        size={20}
+        color={isReturnMode ? "#FFFFFF" : COLORS.textOnDark}
+      />
+      <Text
+        style={[
+          styles.returnBtnText,
+          isReturnMode && styles.returnBtnTextActive,
+        ]}
+      >
+        {isReturnMode ? "Cancel Return" : "Return"}
+      </Text>
+    </Pressable>
+  </View>
+)}
         </View>
 
         {/* RIGHT — cart side */}
-        <View style={styles.right}>
-      <View style={styles.titleRow}>
-  {children}
-  {title !== "Customers" && (
-    <Text style={styles.cartTitle}>{title}</Text>
-  )}
-</View>
-          <View style={styles.rightTools}>
-            {rightExtra}
-
-           {!hideHeldCarts && heldCartsCount > 0 && (
-              <Pressable
-                onPress={onHeldCartsPress}
-                style={styles.iconBtn}
-                hitSlop={8}
-                testID="header-held-carts-button"
-              >
-                <Feather name="archive" size={24} color={COLORS.textOnDark} />
-                <View style={styles.badge} testID="header-held-carts-badge">
-                  <Text style={styles.badgeText}>{heldCartsCount}</Text>
-                </View>
-              </Pressable>
-            )}
-
-            {/* View all held carts — opens a list/modal of every held cart */}
-           {!hideViewHeldCarts && heldCartsCount > 0 && (
-              <Pressable
-                onPress={onViewHeldCartsPress}
-                style={styles.iconBtn}
-                hitSlop={8}
-                testID="header-view-held-carts-button"
-              >
-                <Feather name="list" size={24} color={COLORS.textOnDark} />
-              </Pressable>
-            )}
-
-         {!hideCustomer && (
-  <Pressable
-    onPress={onCustomerPress}
-    style={styles.iconBtn}
-    hitSlop={8}
-    testID="header-customer-button"
-  >
-    <Feather name="user" size={26} color={COLORS.textOnDark} />
-    {customerSelected && (
-      <View style={styles.checkBadge}>
-        <Feather name="check" size={10} color={COLORS.textOnDark} />
-      </View>
+      <View style={styles.right}>
+  <View style={styles.titleRow}>
+ 
+    {children}
+    {title !== "Customers" && (
+      <Text style={styles.cartTitle}>{title}</Text>
     )}
-  </Pressable>
-)}
-{!hideMore && (
-            <Pressable
-              onPress={onMorePress}
-              style={styles.iconBtn}
-              hitSlop={8}
-              testID="header-more-button"
-            >
-              <Feather name="more-vertical" size={26} color={COLORS.textOnDark} />
-            </Pressable>
-          )}
 
-          {/* Add button — right-most corner */}
-{!hideAdd && onAddPress && (
-  <HeaderButton
-    title={addLabel || "Add"}
-    onPress={onAddPress}
-    testID="header-add-button"
-  />
-)}
+  </View>
+
+  <View style={styles.rightTools}>
+    {rightExtra}
+
+    {!hideHeldCarts && heldCartsCount > 0 && (
+      <Pressable
+        onPress={onHeldCartsPress}
+        style={styles.iconBtn}
+        hitSlop={8}
+      >
+        <MaterialCommunityIcons
+          name="cart-arrow-down"
+          size={24}
+          color={COLORS.textOnDark}
+        />
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{heldCartsCount}</Text>
         </View>
-      </View>
-      </View>
-    );
+      </Pressable>
+    )}
+
+    {!hideViewHeldCarts && heldCartsCount > 0 && (
+      <Pressable
+        onPress={onViewHeldCartsPress}
+        style={styles.iconBtn}
+        hitSlop={8}
+      >
+        <MaterialCommunityIcons
+          name="format-list-bulleted"
+          size={24}
+          color={COLORS.textOnDark}
+        />
+      </Pressable>
+    )}
+
+    {!hideCustomer && (
+      <Pressable
+        onPress={onCustomerPress}
+        style={styles.iconBtn}
+        hitSlop={8}
+      >
+        <MaterialCommunityIcons
+          name="account-outline"
+          size={26}
+          color={COLORS.textOnDark}
+        />
+        {customerSelected && (
+          <View style={styles.checkBadge}>
+            <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+          </View>
+        )}
+      </Pressable>
+    )}
+
+    {!hideMore && (
+      <Pressable
+        onPress={onMorePress}
+        style={styles.iconBtn}
+        hitSlop={8}
+      >
+        <Feather
+          name="more-vertical"
+          size={26}
+          color={COLORS.textOnDark}
+        />
+      </Pressable>
+    )}
+
+    {!hideAdd && onAddPress && (
+   
+<HeaderButton
+  title={addLabel || "Add"}
+  onPress={onAddPress}
+  testID="header-add-customer-button"
+/>
+
+    )}
+  </View>
+</View>
+</View>
+);
+
   }
 
   const styles = StyleSheet.create({
@@ -263,7 +317,9 @@ const closeSearch = () => {
   borderRightWidth: StyleSheet.hairlineWidth,
   borderRightColor: COLORS.navyMid,
 },
- right: {
+
+
+right: {
   flex: 4,
   height: "100%",
   flexDirection: "row",
@@ -271,6 +327,8 @@ const closeSearch = () => {
   justifyContent: "space-between",
   paddingHorizontal: SPACING.lg,
 },
+
+
     iconBtn: {
       width: 52,
       height: 52,
@@ -295,11 +353,14 @@ const closeSearch = () => {
       flex: 1,
       justifyContent: "flex-end",
     },
-  titleRow: {
+
+titleRow: {
   flexDirection: "row",
   alignItems: "center",
   gap: SPACING.sm,
+  flexShrink: 0,
 },
+
     cartTitle: {
       color: COLORS.textOnDark,
       fontSize: 22,
@@ -379,5 +440,35 @@ leftContent: {
   flex: 1,
   minWidth: 0,
   marginLeft: SPACING.sm,
+},
+
+returnBtn: {
+  height: 40,
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  paddingHorizontal: 12,
+  borderRadius: 20,
+  borderWidth: 1.5,
+  borderColor: COLORS.textOnDark,
+  backgroundColor: "transparent",
+},
+returnBtnActive: {
+  backgroundColor: "#DC2626",
+  borderColor: "#DC2626",
+},
+returnBtnText: {
+  fontSize: 13,
+  fontWeight: "700",
+  color: COLORS.textOnDark,
+},
+returnBtnTextActive: {
+  color: "#FFFFFF",
+},
+returnButtonWrap: {
+  marginLeft: "auto",
+  flexShrink: 0,
+  alignItems: "flex-end",
+  justifyContent: "center",
 },
   });

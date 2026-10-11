@@ -96,6 +96,8 @@ const [paymentFetching, setPaymentFetching] = useState(false);
   const [cartItems, setCartItems] = useState([]);
   const [isReturnMode, setIsReturnMode] = useState(false);
 const [returnCartItems, setReturnCartItems] = useState([]);
+const [returnSelectedCustomer, setReturnSelectedCustomer] =
+  useState(WALK_IN_CUSTOMER);
 const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
   const [managedItem, setManagedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
@@ -103,6 +105,8 @@ const [customerListSearch, setCustomerListSearch] = useState("");
 
 const handleAddCalculatorItem = (item) => {
   if (isReturnMode) {
+
+
     setReturnCartItems((prev) => [...prev, item]);
     return;
   }
@@ -180,7 +184,14 @@ const handleOpenCustomerSearch = () => {
 const handleCloseCustomerSearch = () => setCustomerModalVisible(false);
 
 const handleSelectCustomerFromSearch = (customer) => {
-  setSelectedCustomer(customer._raw || customer);
+  const selected = customer._raw || customer;
+
+  if (isReturnMode) {
+    setReturnSelectedCustomer(selected);
+  } else {
+    setSelectedCustomer(selected);
+  }
+
   setCustomerModalVisible(false);
 };
 
@@ -238,7 +249,13 @@ const newCustomer =
 
 console.log("CUSTOMER USED FOR CART:", newCustomer);
 
-setSelectedCustomer(newCustomer);
+
+if (isReturnMode) {
+  setReturnSelectedCustomer(newCustomer);
+} else {
+  setSelectedCustomer(newCustomer);
+}
+
     await loadCustomers({ silent: true });
     setCustomerModalVisible(false); // done, close the whole flow
   } catch (err) {
@@ -758,11 +775,43 @@ console.log(
     const periodLabel =
       range?.label || "All dates";
 
-    const openingBalance = Number(
-      customer?.opening_balance ||
-        customer?.openingBalance ||
-        0
-    );
+const originalOpeningBalance = Number(
+  customer?.opening_balance ??
+    customer?.openingBalance ??
+    0
+);
+
+
+const broughtForwardTransactions = [
+  ...(Array.isArray(invoices) ? invoices : []).map((invoice) => ({
+    date: getDate(invoice),
+    kind: "invoice",
+    amount: Number(invoice.total_amount ?? invoice.amount ?? 0),
+  })),
+  ...(Array.isArray(payments) ? payments : []).map((payment) => ({
+    date: getDate(payment),
+    kind: "payment",
+    amount: Number(payment.amount || 0),
+  })),
+].filter((row) => {
+  if (!from) return false;
+
+  const startDate = new Date(from);
+  startDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(row.date.getTime()) &&
+    row.date < startDate
+  );
+});
+
+const openingBalance = broughtForwardTransactions.reduce(
+  (balance, row) =>
+    balance +
+    (row.kind === "invoice" ? row.amount : -row.amount),
+  originalOpeningBalance
+);
+
 
     // Backend-calculated/current outstanding
     const outstanding = Number(
@@ -972,19 +1021,23 @@ const handleBarcodeScan = (e) => {
 };
 
 
+
 const handleProductPress = (product, qtyToAdd = 1) => {
   const productId = product._id || product.id;
+  const updateCart = isReturnMode
+    ? setReturnCartItems
+    : setCartItems;
 
-  setCartItems((prev) => {
+  updateCart((prev) => {
     const existing = prev.find(
-      (i) => (i._id || i.id) === productId
+      (item) => (item._id || item.id) === productId
     );
 
     if (existing) {
-      return prev.map((i) =>
-        (i._id || i.id) === productId
-          ? { ...i, qty: i.qty + qtyToAdd }
-          : i
+      return prev.map((item) =>
+        (item._id || item.id) === productId
+          ? { ...item, qty: (Number(item.qty) || 0) + qtyToAdd }
+          : item
       );
     }
 
@@ -1001,6 +1054,7 @@ const handleProductPress = (product, qtyToAdd = 1) => {
 
 
 
+
 const handleUpdateCartItem = (itemId, updates) => {
   const updateCart = isReturnMode
     ? setReturnCartItems
@@ -1008,7 +1062,7 @@ const handleUpdateCartItem = (itemId, updates) => {
 
   updateCart((prev) =>
     prev.map((item) =>
-      item.id === itemId
+      (item._id || item.id) === itemId
         ? {
             ...item,
             qty: updates.qty,
@@ -1019,6 +1073,7 @@ const handleUpdateCartItem = (itemId, updates) => {
     )
   );
 };
+
 
 
   const handleOpenManageItem = (item) => {
@@ -1032,21 +1087,25 @@ const handleUpdateCartItem = (itemId, updates) => {
 
 const handleIncrement = (item) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
+  const itemId = item._id || item.id;
 
   updateCart((prev) =>
     prev.map((i) =>
-      i.id === item.id ? { ...i, qty: (Number(i.qty) || 0) + 1 } : i
+      (i._id || i.id) === itemId
+        ? { ...i, qty: (Number(i.qty) || 0) + 1 }
+        : i
     )
   );
 };
 
 const handleDecrement = (item) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
+  const itemId = item._id || item.id;
 
   updateCart((prev) =>
     prev
       .map((i) =>
-        i.id === item.id
+        (i._id || i.id) === itemId
           ? { ...i, qty: (Number(i.qty) || 0) - 1 }
           : i
       )
@@ -1056,9 +1115,14 @@ const handleDecrement = (item) => {
 
 const handleRemove = (item) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
+  const itemId = item._id || item.id;
 
-  updateCart((prev) => prev.filter((i) => i.id !== item.id));
+  updateCart((prev) =>
+    prev.filter((i) => (i._id || i.id) !== itemId)
+  );
 };
+
+
 
 const handleClearCart = () => {
   if (isReturnMode) {
@@ -1309,7 +1373,10 @@ searchPlaceholder={
         searchInputRef.current?.focus();
       }}
       onCustomerPress={handleOpenCustomerSearch}
-      customerSelected={selectedCustomer !== WALK_IN_CUSTOMER}
+      customerSelected={
+  (isReturnMode ? returnSelectedCustomer : selectedCustomer) !==
+  WALK_IN_CUSTOMER
+}
       onMorePress={() => setMoreOptionsVisible(true)}
       onScreenAction={() => {
         setEditingCategory(null);
@@ -1320,26 +1387,11 @@ searchPlaceholder={
       editingProductName={productFormState?.product?.product || ""}
       itemCount={activeNav === "inventory" ? products.length : 0}
  
+
 rightExtra={
-  activeNav === "cart" && isCalculatorMode ? (
-    <TouchableOpacity
-      style={[styles.returnBtn, isReturnMode && styles.returnBtnActive]}
-      onPress={() => setIsReturnMode((prev) => !prev)}
-      activeOpacity={0.85}
-      hitSlop={8}
-    >
-      <MaterialCommunityIcons
-        name={isReturnMode ? "close" : "undo-variant"}
-        size={20}
-        color={isReturnMode ? "#FFFFFF" : COLORS.blue}
-      />
-      <Text style={[styles.returnBtnText, isReturnMode && styles.returnBtnTextActive]}>
-        {isReturnMode ? "Cancel Return" : "Return"}
-      </Text>
-    </TouchableOpacity>
-  ) : activeNav === "cart" &&
-    !isCalculatorMode &&
-    heldCarts.length > 0 ? (
+  activeNav === "cart" &&
+  !isCalculatorMode &&
+  heldCarts.length > 0 ? (
     <TouchableOpacity
       style={styles.heldCartBtn}
       onPress={() => setHeldCartsSheetVisible(true)}
@@ -1351,11 +1403,21 @@ rightExtra={
         color={COLORS.blue}
       />
       <View style={styles.heldCountBadge}>
-        <Text style={styles.heldCountText}>{heldCarts.length}</Text>
+        <Text style={styles.heldCountText}>
+          {heldCarts.length}
+        </Text>
       </View>
     </TouchableOpacity>
   ) : null
 }
+
+returnButton={activeNav === "cart" && isCalculatorMode}
+onReturnPress={() => {
+  setIsReturnMode((prev) => !prev);
+  setManagedItem(null);
+}}
+isReturnMode={isReturnMode}
+
 
     />
   )}
@@ -1388,24 +1450,38 @@ rightExtra={
                     onOpenManageItem={handleOpenManageItem}
                     onHoldCart={handleHoldCart}
                     customers={customers}
-                    selectedCustomer={
-                      selectedCustomer === WALK_IN_CUSTOMER ? null : selectedCustomer
-                    }
-                    onSelectCustomer={(customer) =>
-                      setSelectedCustomer(customer || WALK_IN_CUSTOMER)
-                    }
+                  selectedCustomer={
+  (isReturnMode ? returnSelectedCustomer : selectedCustomer) ===
+  WALK_IN_CUSTOMER
+    ? null
+    : isReturnMode
+      ? returnSelectedCustomer
+      : selectedCustomer
+}
+onSelectCustomer={(customer) => {
+  const nextCustomer = customer || WALK_IN_CUSTOMER;
+
+  if (isReturnMode) {
+    setReturnSelectedCustomer(nextCustomer);
+  } else {
+    setSelectedCustomer(nextCustomer);
+  }
+}}
                     grandTotal={grandTotal}
                   checkoutDisabled={activeCartItems.length === 0}
 checkoutLabel={isReturnMode ? "RETURN" : "Checkout"}
 isReturnMode={isReturnMode}
+checkoutLoading={isReturnMode && isSubmittingReturn}
 
 onCheckout={async () => {
-  if (isReturnMode) {
-    if (isSubmittingReturn) return;
+if (isReturnMode) {
+  const activeCustomer = returnSelectedCustomer;
+
+  if (isSubmittingReturn) return;
 
     if (
-      !selectedCustomer ||
-      selectedCustomer === WALK_IN_CUSTOMER
+!activeCustomer ||
+activeCustomer === WALK_IN_CUSTOMER
     ) {
       Alert.alert(
         "Select Customer",
@@ -1422,8 +1498,8 @@ onCheckout={async () => {
       return;
     }
 
-    const customerId =
-      selectedCustomer?._id || selectedCustomer?.id;
+const customerId =
+  activeCustomer?._id || activeCustomer?.id;
 
     if (!customerId) {
       Alert.alert(
@@ -1478,27 +1554,74 @@ const returnItems = activeCartItems.map((item) => ({
         items: returnItems,
       });
 
-      const result = response?.data ?? response;
+      
+const payload = response?.data ?? response;
+const result = payload?.data ?? payload;
 
-      Alert.alert(
-        "Return Successful",
-        `Return No: ${result.return_no}\n` +
-          `Amount: ₹${Number(
-            result.total_amount || 0
-          ).toFixed(2)}\n` +
-          `Outstanding: ₹${Number(
-            result.outstanding_after_return || 0
-          ).toFixed(2)}`,
-        [
-          {
-            text: "OK",
-           onPress: async () => {
-  setReturnCartItems([]);
-  await loadCustomers({ silent: true });
-},
-          },
-        ]
-      );
+
+const broughtForwardTransactions = [
+  ...(Array.isArray(invoices) ? invoices : []).map((invoice) => ({
+    date: getDate(invoice),
+    kind: "invoice",
+    amount: Number(invoice.total_amount ?? invoice.amount ?? 0),
+  })),
+  ...(Array.isArray(payments) ? payments : []).map((payment) => ({
+    date: getDate(payment),
+    kind: "payment",
+    amount: Number(payment.amount || 0),
+  })),
+].filter((row) => {
+  if (!from) return false;
+
+  const transactionDate = row.date;
+  const startDate = new Date(from);
+  startDate.setHours(0, 0, 0, 0);
+
+  return (
+    !Number.isNaN(transactionDate.getTime()) &&
+    transactionDate < startDate
+  );
+});
+
+const openingBalance = broughtForwardTransactions.reduce(
+  (balance, row) =>
+    balance +
+    (row.kind === "invoice" ? row.amount : -row.amount),
+  originalOpeningBalance
+);
+
+
+
+
+const customerName =
+  returnSelectedCustomer?.customer_name ||
+  `${returnSelectedCustomer?.first_name || ""} ${
+    returnSelectedCustomer?.last_name || ""
+  }`.trim() ||
+  "Walk-in Customer";
+
+
+setReturnCartItems([]);
+setReturnSelectedCustomer(WALK_IN_CUSTOMER);
+
+// Navigate immediately so the POS does not briefly render
+// its normal cart screen before showing return success.
+navigation.navigate("POSReturnSuccess", {
+  returnNo: result.return_no || "",
+  amount: Number(result.total_amount || 0),
+  outstanding: Number(result.outstanding_after_return || 0),
+  customerName,
+});
+
+// Refresh customers in the background.
+loadCustomers({ silent: true });
+
+
+
+
+
+
+ 
     } catch (error) {
       Alert.alert(
         "Return Failed",
@@ -1672,12 +1795,17 @@ const returnItems = activeCartItems.map((item) => ({
         visible={!!managedItem}
         item={managedItem}
         onClose={handleCloseManageItem}
-        onApply={(updates) => {
-          if (managedItem) {
-            handleUpdateCartItem(managedItem.id, updates);
-          }
-          handleCloseManageItem();
-        }}
+    
+onApply={(updates) => {
+  if (managedItem) {
+    handleUpdateCartItem(
+      managedItem._id || managedItem.id,
+      updates
+    );
+  }
+  handleCloseManageItem();
+}}
+
       />
 
 {/* Customer flow: one Modal, two internal screens — no close/reopen flicker */}

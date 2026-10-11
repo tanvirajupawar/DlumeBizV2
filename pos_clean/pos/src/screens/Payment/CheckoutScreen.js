@@ -23,8 +23,8 @@ import { createPayment } from "../../api/payment";
 
 const PAYMENT_OPTIONS = [
   { id: "cash", title: "Cash" },
-  { id: "card", title: "Card" },
   { id: "upi", title: "UPI" },
+    { id: "card", title: "Card" },
 ];
 
 // same centering pattern as ManageCartItemModal — caps content width and
@@ -244,6 +244,18 @@ customerName:
     .filter(Boolean)
     .join(" ") ||
   "Walk-in",
+
+  
+
+customerNumber:
+  customer?.contact_no_1 ||
+  customer?.mobile ||
+  customer?.phone ||
+  customer?.mobile_number ||
+  customer?.contact_no_1 ||
+  "",
+
+
 
   paymentMode:
     paymentId === "cash"

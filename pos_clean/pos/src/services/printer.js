@@ -528,28 +528,40 @@ export const printCustomerLedger = async (ledger) => {
     // NORMALIZE DATA
     // ==================================================
 
-    const normalizedLedger = {
-      customer: {
-        name: String(ledger?.customer?.name || "Customer").trim(),
-        company: String(ledger?.customer?.company || "").trim(),
-        phone: String(ledger?.customer?.phone || "").trim(),
-      },
 
-      period: String(ledger?.period || "All dates"),
+const ledgerRows = Array.isArray(ledger?.rows)
+  ? ledger.rows
+  : [];
 
-      openingBalance: Number(
-        ledger?.openingBalance || 0
-      ),
+const balanceRow = ledgerRows.find(
+  (row) => row?.kind === "balance"
+);
 
-  rows: Array.isArray(ledger?.rows)
-  ? ledger.rows.map((row) => ({
+const normalizedLedger = {
+  customer: {
+    name: String(ledger?.customer?.name || "Customer").trim(),
+    company: String(ledger?.customer?.company || "").trim(),
+    phone: String(ledger?.customer?.phone || "").trim(),
+  },
+
+  period: String(ledger?.period || "All dates"),
+
+  // Use the brought-forward amount as the starting balance.
+  openingBalance: Number(
+    ledger?.openingBalance ?? balanceRow?.amount ?? 0
+  ),
+
+  // Do not send the balance row as a transaction.
+  // Returns must reduce the balance like payments.
+  rows: ledgerRows
+    .filter((row) => row?.kind !== "balance")
+    .map((row) => ({
       date: String(row?.date || ""),
-      kind: String(row?.kind || ""),
+      kind: row?.kind === "return" ? "payment" : String(row?.kind || ""),
       title: String(row?.title || "Transaction").trim(),
       note: String(row?.note || "").trim(),
       amount: Number(row?.amount || 0),
 
-      // Keep invoice item details for QTY × RATE printing
       lines:
         row?.kind === "invoice" && Array.isArray(row?.lines)
           ? row.lines.map((line) => ({
@@ -558,21 +570,13 @@ export const printCustomerLedger = async (ledger) => {
               amount: Number(line?.amount || 0),
             }))
           : [],
-    }))
-  : [],
+    })),
 
-      totalInvoiced: Number(
-        ledger?.totalInvoiced || 0
-      ),
+  totalInvoiced: Number(ledger?.totalInvoiced || 0),
+  totalReceived: Number(ledger?.totalReceived || 0),
+  outstanding: Number(ledger?.outstanding || 0),
+};
 
-      totalReceived: Number(
-        ledger?.totalReceived || 0
-      ),
-
-      outstanding: Number(
-        ledger?.outstanding || 0
-      ),
-    };
 
     console.log(
       "NORMALIZED CUSTOMER LEDGER:",

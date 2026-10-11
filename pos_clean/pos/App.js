@@ -7,6 +7,7 @@ import POSScreen from "./src/screens/POS/POSScreen";
 import CheckoutScreen from "./src/screens/Payment/CheckoutScreen";
 import POSPaymentSuccessScreen from "./src/screens/Payment/POSPaymentSuccessScreen";
 import CreditSummaryScreen from "./src/screens/Payment/CreditSummaryScreen";
+import POSReturnSuccessScreen from "./src/screens/POS/POSReturnSuccessScreen";
 
 import { AuthProvider } from "./src/context/AuthContext";
 
@@ -27,6 +28,10 @@ export default function App() {
 <Stack.Screen
   name="CreditSummary"
   component={CreditSummaryScreen}
+/>
+<Stack.Screen
+  name="POSReturnSuccess"
+  component={POSReturnSuccessScreen}
 />
 </Stack.Navigator>
       </NavigationContainer>

@@ -25,9 +25,7 @@ const WIDE_BREAKPOINT = 600;
 
 const METHODS = [
   { key: "CASH", label: "Cash", icon: "cash-outline" },
-  { key: "CARD", label: "Card", icon: "card-outline" },
   { key: "UPI", label: "UPI", icon: "phone-portrait-outline" },
-  { key: "OTHER", label: "Other", icon: "ellipsis-horizontal-circle-outline" },
 ];
 
 const money = (v) =>

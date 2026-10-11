@@ -41,6 +41,13 @@ const customerLedgerSchema = new mongoose.Schema(
       default: null,
     },
 
+    // For RETURN entries
+return_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "CustomerReturn",
+  default: null,
+},
+
     // Amount added to customer's outstanding
     debit: {
       type: Number,

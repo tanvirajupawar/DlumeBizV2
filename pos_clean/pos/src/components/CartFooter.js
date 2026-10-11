@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { COLORS, SPACING, RADIUS, SHADOW } from "./Colors";
+import Loader from "./Loader";
 
 const formatPrice = (n) =>
   `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -31,9 +32,10 @@ export default function CartFooter({
   onClear,
   onHold,
   onCheckout,
-  checkoutLabel = "Checkout",
-   isReturnMode = false,  
-  onToggleSummary,
+checkoutLabel = "Checkout",
+isReturnMode = false,
+checkoutLoading = false,
+onToggleSummary,
 }) {
 const [expanded, setExpanded] = useState(false);
   const handleToggleSummary = () => {
@@ -99,24 +101,43 @@ const [expanded, setExpanded] = useState(false);
   <Feather name="shopping-cart" size={22} color={COLORS.danger} />
 </Pressable>
 
-            <Pressable
-          onPress={onCheckout}
-          disabled={isEmpty}
-          style={[
-            styles.checkoutBtn,
-            isReturnMode && styles.checkoutBtnReturn,
-            isEmpty &&
-              (isReturnMode
-                ? styles.checkoutBtnReturnDisabled
-                : styles.checkoutBtnDisabled),
-          ]}
-          testID="cart-checkout-button"
-        >
-          <Text style={styles.checkoutText}>
-            {isReturnMode ? checkoutLabel : isEmpty ? "Save Order" : checkoutLabel}
-          </Text>
-          <Text style={styles.checkoutAmount}>{formatPrice(total)}</Text>
-        </Pressable>
+    
+<Pressable
+  onPress={onCheckout}
+  disabled={isEmpty || checkoutLoading}
+  style={[
+    styles.checkoutBtn,
+    isReturnMode && styles.checkoutBtnReturn,
+    (isEmpty || checkoutLoading) &&
+      (isReturnMode
+        ? styles.checkoutBtnReturnDisabled
+        : styles.checkoutBtnDisabled),
+  ]}
+  testID="cart-checkout-button"
+>
+  {checkoutLoading ? (
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+      <Loader size="small" color="#FFFFFF" />
+      <Text style={[styles.checkoutText, { marginLeft: 8 }]}>
+        Processing Return...
+      </Text>
+    </View>
+  ) : (
+    <>
+      <Text style={styles.checkoutText}>
+        {isReturnMode
+          ? checkoutLabel
+          : isEmpty
+          ? "Save Order"
+          : checkoutLabel}
+      </Text>
+      <Text style={styles.checkoutAmount}>
+        {formatPrice(total)}
+      </Text>
+    </>
+  )}
+</Pressable>
+
       </View>
     </View>
   );

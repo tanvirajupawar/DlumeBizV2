@@ -218,6 +218,7 @@ const mapInvoice = (inv, returnsBySalesId) => {
   const subTotal = items.reduce((s, it) => s + it.amount, 0);
   const grandTotal = totalAmount > 0 ? totalAmount : subTotal;
 const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
+const previousOutstanding = Number(inv.previous_outstanding || 0);
   const tax = Number(inv.tax_amount || inv.tax || 0);
 
   return {
@@ -229,9 +230,17 @@ const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
       inv.customer_id ||
       inv.client_id ||
       "",
-    customer: customerName,
-    companyName,
-    total: grandTotal,
+customer: customerName,
+customerNumber:
+  customer.mobile ||
+  customer.phone ||
+  customer.customer_number ||
+  customer.customerNumber ||
+  inv.customer_mobile ||
+  inv.customer_number ||
+  "",
+companyName,
+total: grandTotal,
     status,
     paymentStatus: status === "Paid" ? "Paid" : "Unpaid",
     paymentMode: inv.payment_method || inv.paymentMode || "",
@@ -243,20 +252,39 @@ const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
     discount,
     tax,
     grandTotal,
+    previousOutstanding,
     paidAmount,
     pendingAmount,
     returnAmount: totalReturn,
-    customerInfo: {
-      _id: customer._id || "",
-      company_name: companyName,
-      gstin: customer.gstin || "",
-      phone: customer.phone || "",
-      email: customer.email || "",
-      address_line1: customer.address_line1 || customer.address || "",
-      city: customer.city || "",
-      state: customer.state || "",
-      pincode: customer.pincode || "",
-    },
+
+customerNumber:
+  customer.mobile ||
+  customer.phone ||
+  customer.customer_number ||
+  customer.customerNumber ||
+  inv.customer_mobile ||
+  inv.customer_number ||
+  "",
+
+customerInfo: {
+  _id: customer._id || "",
+  company_name: companyName,
+  gstin: customer.gstin || "",
+  phone:
+    customer.mobile ||
+    customer.phone ||
+    customer.customer_number ||
+    customer.customerNumber ||
+    inv.customer_mobile ||
+    inv.customer_number ||
+    "",
+  email: customer.email || "",
+  address_line1: customer.address_line1 || customer.address || "",
+  city: customer.city || "",
+  state: customer.state || "",
+  pincode: customer.pincode || "",
+},
+
   };
 };
 
@@ -277,22 +305,51 @@ const mapPayment = (col) => ({
   amount: Number(col.amount || 0),
 });
 
-const mapReturnRecord = (ret) => ({
-  id: ret._id,
-  returnNo: ret.return_no || "-",
-  salesId: (ret.sales_id && ret.sales_id._id) || ret.sales_id || "",
-  date: ret.createdAt || ret.date || "",
-  total: Number(ret.total_amount || 0),
-  reason: ret.reason || "",
-  details: (ret.details || []).map((d, idx) => ({
-    id: d._id || `${ret._id}-${idx}`,
-    product_id: (d.product_id && d.product_id._id) || d.product_id || "",
-    name: d.product_name || "Item",
-    qty: Number(d.qty || 0),
-    rate: Number(d.price || 0),
-    amount: Number(d.amount || 0),
-  })),
-});
+
+const mapReturnRecord = (ret) => {
+  const customer =
+    ret.customer_id && typeof ret.customer_id === "object"
+      ? ret.customer_id
+      : {};
+
+  const returnDate =
+    ret.return_date || ret.createdAt || ret.date || "";
+
+  const details = (ret.items || []).map((item, idx) => ({
+    id: item._id || `${ret._id}-${idx}`,
+    product_id:
+      (item.product_id && item.product_id._id) ||
+      item.product_id ||
+      "",
+    name: item.product_name || item.description || "Item",
+    qty: Number(item.qty || 0),
+    rate: Number(item.price || 0),
+    amount: Number(item.amount || 0),
+  }));
+
+  return {
+    id: `return-${ret._id}`,
+    type: "return",
+    returnNo: ret.return_no || "-",
+    invoiceNo: ret.return_no || "-",
+    salesId:
+      (ret.sales_id && ret.sales_id._id) ||
+      ret.sales_id ||
+      "",
+    date: returnDate,
+    total: Number(ret.total_amount || 0),
+    customer:
+      customer.name ||
+      customer.customer_name ||
+      ret.customer_name ||
+      "Customer",
+    companyName: "",
+    status: "RETURN",
+    reason: ret.description || ret.reason || "",
+    details,
+  };
+};
+
 
 const returnBelongsToOrder = (ret, order) => {
   if (!order) return false;
@@ -312,7 +369,17 @@ const paymentBelongsToOrder = (payment, order) => {
 // of a fresh cart — so reprinting an old invoice uses the exact same
 // printer service and layout as the original receipt.
 const buildReceiptFromOrder = (order, company, user) => ({
-  companyName: company?.name || "D'LumeBiz",
+
+customerName:
+  order.companyName && order.companyName !== "Walk-in"
+    ? order.companyName
+    : order.customer,
+
+customerNumber:
+  order.customerNumber ||
+  order.customerInfo?.phone ||
+  order.customerInfo?.mobile ||
+  "",
 
   companyAddress: [
     company?.address,
@@ -337,11 +404,12 @@ const buildReceiptFromOrder = (order, company, user) => ({
       : order.customer,
 
   paymentMode: order.paymentMode || order.paymentStatus || "",
-  subtotal: order.subTotal,
-  totalDiscount: order.discount,
-  totalTax: order.tax,
-  grandTotal: order.grandTotal,
-  amountReceived: order.paidAmount,
+subtotal: order.subTotal,
+totalDiscount: order.discount,
+totalTax: order.tax,
+grandTotal: order.grandTotal,
+previousOutstanding: order.previousOutstanding,
+amountReceived: order.paidAmount,
 
   receipt_size: "58mm",
   isGSTUser: false,
@@ -393,7 +461,7 @@ const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress
     >
       <View style={styles.listRowTopLine}>
         <Text style={styles.listRowId} numberOfLines={1}>
-          {order.invoiceNo}
+        {order.type === "return" ? order.invoiceNo : order.invoiceNo}
         </Text>
         <Text style={styles.listRowAmount}>
           {"\u20B9"}
@@ -415,7 +483,7 @@ const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress
         ]}
       >
         <View style={[styles.statusChipDot, { backgroundColor: statusColor }]} />
-        <Text style={[styles.statusChipText, { color: statusColor }]}>{order.status}</Text>
+        <Text style={[styles.statusChipText, { color: statusColor }]}>{order.type === "return" ? "RETURN" : order.status}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -431,10 +499,21 @@ function MoreMenuModal({
   hideRefund = false,
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.moreMenuOverlay} activeOpacity={1} onPress={onClose}>
-        <View style={styles.moreMenuSheet}>
-          <View style={styles.moreMenuHandle} />
+<Modal
+  visible={visible}
+  transparent
+  animationType="fade"
+  onRequestClose={onClose}
+>
+  <View style={styles.moreMenuOverlay}>
+    <TouchableOpacity
+      style={StyleSheet.absoluteFillObject}
+      activeOpacity={1}
+      onPress={onClose}
+    />
+
+    <View style={styles.moreMenuSheet}>
+      <View style={styles.moreMenuHandle} />
 
           {!hideRefund && (
             <TouchableOpacity
@@ -466,8 +545,8 @@ function MoreMenuModal({
             <Text style={[styles.moreMenuItemText, { color: "#DC2626" }]}>Delete Invoice</Text>
           </TouchableOpacity>
         </View>
-      </TouchableOpacity>
-    </Modal>
+  </View>
+</Modal>
   );
 }
 
@@ -832,10 +911,19 @@ function RefundItemsModal({ visible, order, returns, onClose, onConfirm, submitt
   );
 }
 
+
+
+
 // ─── Order detail panel ───────────────────────────────────────────────────
 
 function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryPayments, returns, onRefundSuccess }) {
   const [tab, setTab] = useState("overview");
+  const isReturnOrder = order?.type === "return";
+
+useEffect(() => {
+  setTab("overview");
+}, [order?.id, order?.type]);
+
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   const [refundModalVisible, setRefundModalVisible] = useState(false);
   const [refunding, setRefunding] = useState(false);
@@ -895,53 +983,33 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
       return refundedQty >= it.qty;
     });
 
-  const handlePrint = () => {
-    if (printing) return;
+const handlePrint = async () => {
+  if (printing) return;
 
-    Alert.alert(
-      "Confirm Print",
-      `Do you want to print invoice ${order.invoiceNo}?`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Print",
-          onPress: async () => {
-            setPrinting(true);
+  setPrinting(true);
 
-            try {
-              const receipt = buildReceiptFromOrder(order, company, user);
+  try {
+    const receipt = buildReceiptFromOrder(order, company, user);
 
-              console.log(
-                "ORDERS SCREEN RECEIPT:",
-                JSON.stringify(receipt, null, 2)
-              );
-
-              const outcome = await printReceipt(receipt);
-
-              if (!outcome?.success) {
-                Alert.alert(
-                  "Print Failed",
-                  outcome?.error?.message ||
-                    "Unable to print this invoice."
-                );
-              }
-            } catch (err) {
-              Alert.alert(
-                "Print Failed",
-                err?.message ||
-                  "Unable to print this invoice."
-              );
-            } finally {
-              setPrinting(false);
-            }
-          },
-        },
-      ]
+    console.log(
+      "ORDERS SCREEN RECEIPT:",
+      JSON.stringify(receipt, null, 2)
     );
-  };
+
+    const outcome = await printReceipt(receipt);
+
+    if (!outcome?.success) {
+      console.error(
+        "Print failed:",
+        outcome?.error?.message || "Unable to print this invoice."
+      );
+    }
+  } catch (err) {
+    console.error("Print error:", err?.message || err);
+  } finally {
+    setPrinting(false);
+  }
+};
 
   const handleShare = async () => {
     try {
@@ -1041,6 +1109,11 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
         <div class="divider"></div>
 
         <div class="totals-row"><span>Subtotal</span><span>${"\u20B9"}${money(receipt.subtotal)}</span></div>
+        ${
+  receipt.previousOutstanding > 0
+    ? `<div class="totals-row"><span>Previous Outstanding</span><span>${"\u20B9"}${money(receipt.previousOutstanding)}</span></div>`
+    : ""
+}
         ${
           receipt.totalDiscount > 0
             ? `<div class="totals-row"><span>Discount</span><span>-${"\u20B9"}${money(receipt.totalDiscount)}</span></div>`
@@ -1169,7 +1242,7 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
     </Text>
   </TouchableOpacity>
 
-  {!isCalculatorOrder && (
+ {!isReturnOrder && !isCalculatorOrder && (
     <TouchableOpacity
       style={[
         styles.tabBtn,
@@ -1217,7 +1290,7 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
                 shown here anymore — it already has its own dedicated
                 "Refunds" tab above, so surfacing it a second time here was
                 redundant. */}
-            {order.pendingAmount > 0 && (
+          {!isReturnOrder && order.pendingAmount > 0 && (
               <View style={styles.calloutRow}>
                 <View style={[styles.calloutBox, styles.calloutBoxDanger]}>
                   <Text style={styles.calloutLabel}>Pending Amount</Text>
@@ -1265,18 +1338,22 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
                   {"\u20B9"}{money(order.grandTotal)}
                 </Text>
               </View>
-              <View style={styles.salesSummaryRow}>
-                <Text style={styles.salesSummaryLabel}>Paid Amount</Text>
-                <Text style={[styles.salesSummaryValue, { color: "#16A34A" }]}>
-                  {"\u20B9"}{money(order.paidAmount)}
-                </Text>
-              </View>
-              <View style={[styles.salesSummaryRow, { paddingBottom: 0 }]}>
-                <Text style={styles.salesSummaryLabel}>Pending Amount</Text>
-                <Text style={[styles.salesSummaryValue, { color: "#DC2626" }]}>
-                  {"\u20B9"}{money(order.pendingAmount)}
-                </Text>
-              </View>
+            {!isReturnOrder && (
+  <View style={styles.salesSummaryRow}>
+    <Text style={styles.salesSummaryLabel}>Paid Amount</Text>
+    <Text style={[styles.salesSummaryValue, { color: "#16A34A" }]}>
+      {"\u20B9"}{money(order.paidAmount)}
+    </Text>
+  </View>
+)}
+            {!isReturnOrder && (
+  <View style={[styles.salesSummaryRow, { paddingBottom: 0 }]}>
+    <Text style={styles.salesSummaryLabel}>Pending Amount</Text>
+    <Text style={[styles.salesSummaryValue, { color: "#DC2626" }]}>
+      {"\u20B9"}{money(order.pendingAmount)}
+    </Text>
+  </View>
+)}
             </View>
           </>
         ) : tab === "payment-recieved" ? (
@@ -1417,7 +1494,7 @@ function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryP
         onClose={() => setMoreMenuVisible(false)}
         onRefund={handleOpenRefundModal}
         onDelete={handleDelete}
-        hideRefund={isCalculatorOrder}
+      hideRefund={isReturnOrder || isCalculatorOrder}
       />
 
       <RefundItemsModal
@@ -1524,44 +1601,90 @@ export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {}
     if (!silent) {
       setOrdersLoading(true);
     }
+
     setOrdersError(null);
+
     try {
       const token = await getToken();
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const salesRes = await API.get("/sales", { headers });
+      const headers = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
 
-      const salesData = salesRes.data.data || salesRes.data || [];
-      const returnsData = [];
+      const [salesRes, returnsRes] = await Promise.all([
+        API.get("/sales", { headers }),
+        API.get("/customer-returns", { headers }),
+      ]);
+
+      const salesData = Array.isArray(salesRes.data?.data)
+        ? salesRes.data.data
+        : Array.isArray(salesRes.data)
+          ? salesRes.data
+          : [];
+
+      const returnsData = Array.isArray(returnsRes.data?.data)
+        ? returnsRes.data.data
+        : Array.isArray(returnsRes.data)
+          ? returnsRes.data
+          : [];
+
       const mappedReturns = returnsData.map(mapReturnRecord);
+
       const returnsBySalesId = {};
+
       returnsData.forEach((ret) => {
-        const sid = (ret.sales_id && ret.sales_id._id) || ret.sales_id || "";
-        if (!sid) return;
-        returnsBySalesId[sid] =
-          (returnsBySalesId[sid] || 0) + (Number(ret.total_amount) || 0);
+        const salesId =
+          (ret.sales_id && ret.sales_id._id) ||
+          ret.sales_id ||
+          "";
+
+        if (!salesId) return;
+
+        returnsBySalesId[salesId] =
+          (returnsBySalesId[salesId] || 0) +
+          (Number(ret.total_amount) || 0);
       });
-      const mapped = salesData
+
+      const mappedOrders = salesData
         .map((inv) => mapInvoice(inv, returnsBySalesId))
-        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        .sort(
+          (a, b) =>
+            new Date(b.date || 0).getTime() -
+            new Date(a.date || 0).getTime()
+        );
 
-      setOrders(mapped);
+      setOrders(mappedOrders);
       setReturns(mappedReturns);
-      setActiveOrderId((prev) => prev || (mapped[0] ? mapped[0].id : null));
-      setVisibleCount(PAGE_SIZE);
 
-      // Persist for next time the screen opens — next visit paints
-      // instantly from this instead of showing a blank loader.
-      setCached(CACHE_KEYS.orders, { orders: mapped, returns: mappedReturns });
+  
+ setActiveOrderId((prev) => {
+  if (
+    prev &&
+    (mappedOrders.some((order) => order.id === prev) ||
+      mappedReturns.some((ret) => ret.id === prev))
+  ) {
+    return prev;
+  }
+
+  return mappedOrders[0]?.id || mappedReturns[0]?.id || null;
+});
+      setCached(CACHE_KEYS.orders, {
+        orders: mappedOrders,
+        returns: mappedReturns,
+      });
     } catch (err) {
+      console.error("Failed to fetch orders and customer returns:", err);
+
       setOrdersError(
-        err?.response?.data?.message || "Failed to load orders. Please try again."
+        err?.response?.data?.message ||
+          "Failed to load orders. Please try again."
       );
     } finally {
       setOrdersLoading(false);
     }
   }, []);
 
-  // Wrapper used ONLY by the SectionList's pull-to-refresh gesture. This is
+
+     // Wrapper used ONLY by the SectionList's pull-to-refresh gesture. This is
   // the one place `pullRefreshing` gets set — the automatic background sync
   // on mount calls fetchOrders directly and never touches this, so it never
   // pops the spinner on its own.
@@ -1648,26 +1771,52 @@ export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {}
 
   // Order list filter — uses `listDate` (NOT summaryDate). When listDate is
   // null, all dates are shown.
-  const filteredOrders = useMemo(() => {
+
+  // Combine invoices and customer returns into one list.
+  // Returns remain separate rows and are sorted by their own dates.
+  const combinedRecords = useMemo(() => {
+    const orderRecords = orders.map((order) => ({
+      ...order,
+      type: "order",
+      dateGroup: dateGroupFor(order.date),
+    }));
+
+    const returnRecords = returns.map((ret) => ({
+      ...ret,
+      type: "return",
+      dateGroup: dateGroupFor(ret.date),
+    }));
+
+    return [...orderRecords, ...returnRecords].sort(
+      (a, b) =>
+        new Date(b.date || 0).getTime() -
+        new Date(a.date || 0).getTime()
+    );
+  }, [orders, returns]);
+
+  // Apply the same date and search filters to invoices AND returns.
+  const filteredRecords = useMemo(() => {
     const q = search.trim().toLowerCase();
     const selectedDateKey = listDate ? dateKey(listDate) : "";
 
-    return orders.filter((o) => {
-      // Date filter
-      if (selectedDateKey && dateKey(o.date) !== selectedDateKey) {
+    return combinedRecords.filter((record) => {
+      if (
+        selectedDateKey &&
+        dateKey(record.date) !== selectedDateKey
+      ) {
         return false;
       }
 
-      // Search filter
       if (!q) return true;
 
       return (
-        (o.invoiceNo || "").toLowerCase().includes(q) ||
-        (o.customer || "").toLowerCase().includes(q) ||
-        (o.companyName || "").toLowerCase().includes(q)
+        (record.invoiceNo || "").toLowerCase().includes(q) ||
+        (record.returnNo || "").toLowerCase().includes(q) ||
+        (record.customer || "").toLowerCase().includes(q) ||
+        (record.companyName || "").toLowerCase().includes(q)
       );
     });
-  }, [orders, search, listDate]);
+  }, [combinedRecords, search, listDate]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -1676,45 +1825,75 @@ export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {}
   useEffect(() => {
     if (
       activeOrderId &&
-      !filteredOrders.some((o) => o.id === activeOrderId)
+      !filteredRecords.some((record) => record.id === activeOrderId)
     ) {
       setActiveOrderId(null);
     }
-  }, [filteredOrders, activeOrderId]);
+  }, [filteredRecords, activeOrderId]);
 
-  const pagedOrders = useMemo(
-    () => filteredOrders.slice(0, visibleCount),
-    [filteredOrders, visibleCount]
+  const pagedRecords = useMemo(
+    () => filteredRecords.slice(0, visibleCount),
+    [filteredRecords, visibleCount]
   );
-  const hasMoreOrders = visibleCount < filteredOrders.length;
+
+  const hasMoreOrders = visibleCount < filteredRecords.length;
 
   const handleLoadMoreOrders = useCallback(() => {
-    setVisibleCount((c) => Math.min(c + PAGE_SIZE, filteredOrders.length));
-  }, [filteredOrders.length]);
+    setVisibleCount((count) =>
+      Math.min(count + PAGE_SIZE, filteredRecords.length)
+    );
+  }, [filteredRecords.length]);
 
   const groupedOrders = useMemo(() => {
     const groups = {};
-    pagedOrders.forEach((order) => {
-      if (!groups[order.dateGroup]) groups[order.dateGroup] = [];
-      groups[order.dateGroup].push(order);
-    });
-    return groups;
-  }, [pagedOrders]);
 
-  // pagedOrders is already sorted newest-first, so the date-group keys are
-  // discovered in that same newest-first order as we iterate — no need for
-  // a fixed GROUP_ORDER list like the old TODAY/YESTERDAY/OLDER buckets.
+    pagedRecords.forEach((record) => {
+      const group = record.dateGroup || dateGroupFor(record.date);
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(record);
+    });
+
+    return groups;
+  }, [pagedRecords]);
+
   const groupLabels = useMemo(
     () => Object.keys(groupedOrders),
     [groupedOrders]
   );
 
   const orderSections = useMemo(
-    () => groupLabels.map((label) => ({ title: label, data: groupedOrders[label] })),
+    () =>
+      groupLabels.map((label) => ({
+        title: label,
+        data: groupedOrders[label],
+      })),
     [groupLabels, groupedOrders]
   );
 
-  const activeOrder = orders.find((o) => o.id === activeOrderId) || null;
+
+const activeOrder = useMemo(() => {
+  const order = orders.find((o) => o.id === activeOrderId);
+  if (order) return order;
+
+  const ret = returns.find((r) => r.id === activeOrderId);
+  if (!ret) return null;
+
+  return {
+    ...ret,
+    type: "return",
+    items: (ret.details || []).map((item) => ({
+      ...item,
+      description: item.description || "",
+      size: item.size || "",
+    })),
+    subTotal: ret.total,
+    grandTotal: ret.total,
+    discount: 0,
+    tax: 0,
+    paidAmount: 0,
+    pendingAmount: 0,
+  };
+}, [orders, returns, activeOrderId]);
 
   // ── Stable SectionList render callbacks ────────────────────────────────
   // These are memoized so their identity only changes when something they
@@ -1990,7 +2169,7 @@ export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {}
                 }
                 ListEmptyComponent={
                   <View style={styles.emptyList}>
-                    <Text style={styles.emptyListText}>No orders found</Text>
+                  <Text style={styles.emptyListText}>No orders or returns found</Text>
                   </View>
                 }
                 // Pull-to-refresh manually re-hits the API and refreshes

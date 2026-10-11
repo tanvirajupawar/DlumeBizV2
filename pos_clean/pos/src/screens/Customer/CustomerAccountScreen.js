@@ -318,7 +318,7 @@ bal += isCredit ? -amt : amt;
         .filter((i) => {
           if (!selectedDate) return true;
           if (isOpening(i)) return true;
-          return toKey(entryDate(i)) === selectedDate;
+        return toKey(entryDate(i)) >= selectedDate;
         })
         .sort((a, b) => {
           if (isOpening(a) !== isOpening(b)) return isOpening(a) ? 1 : -1;
@@ -439,25 +439,88 @@ else acc.received += r.amount;
     ? selectedDate.split("-").reverse().join("/")
     : "All Dates";
 
-  // ── Print ──
-  const printPayload = {
-    customer: {
-      name,
-      company: customer.company_name || "",
-      phone: customer.contact_no_1 || "",
-    },
-    period: selectedDate ? dateLabel : "All dates",
-    rows: [...summaryRows].reverse().map((r) => ({
-      date: fmtDate(r.date),
-      kind: r.kind,
-      title: r.title,
-      note: r.note,
-      amount: r.amount,
-    })),
-    totalInvoiced: totals.invoiced,
-    totalReceived: totals.received,
-    outstanding,
-  };
+
+
+  // ── Print: balance brought forward + filtered transactions ──
+
+
+const broughtForward = (() => {
+  const openingEntry = withBalance.find(isOpening);
+
+  const originalOpeningBalance = openingEntry
+    ? Number(openingEntry._bal || 0)
+    : 0;
+
+  if (!selectedDate) return originalOpeningBalance;
+
+  const previousEntries = withBalance
+    .filter(
+      (item) =>
+        !isOpening(item) &&
+        toKey(entryDate(item)) < selectedDate
+    )
+    .sort((a, b) => {
+      const diff = dayOf(a) - dayOf(b);
+      return diff !== 0 ? diff : createdOf(a) - createdOf(b);
+    });
+
+  return previousEntries.length
+    ? Number(previousEntries[previousEntries.length - 1]._bal || 0)
+    : originalOpeningBalance;
+})();
+
+
+
+const closingBalance = selectedDate
+  ? Math.max(
+      0,
+      broughtForward + totals.invoiced - totals.received
+    )
+  : outstanding;
+
+
+
+  const transactionRows = [...summaryRows].reverse().map((r) => ({
+    date: fmtDate(r.date),
+    kind: r.kind,
+    title: r.title,
+    note: r.note,
+    amount: r.amount,
+  }));
+
+
+const openingEntry = withBalance.find(isOpening);
+
+const originalOpeningBalance = Number(
+  openingEntry?._bal || 0
+);
+
+const printPayload = {
+  customer: {
+    name,
+    company: customer.company_name || "",
+    phone: customer.contact_no_1 || "",
+  },
+
+  period: selectedDate ? dateLabel : "All Dates",
+
+  // Selected date: balance carried forward to that date.
+  // All Dates: original opening balance.
+  openingBalance: selectedDate
+    ? Number(broughtForward || 0)
+    : originalOpeningBalance,
+
+  // Print transactions oldest to newest so the running
+  // balance is calculated in the correct order.
+rows: transactionRows,
+
+  totalInvoiced: totals.invoiced,
+  totalReceived: totals.received,
+  outstanding: closingBalance,
+};
+
+
+
 
   const buildStatementHtml = (p) => `
     <html><head><meta charset="utf-8" />
@@ -478,18 +541,45 @@ else acc.received += r.amount;
       <div class="muted">Period: ${esc(p.period)}</div>
       <table>
         <tr><th>Date</th><th>Particulars</th><th class="r">Invoice</th><th class="r">Received</th></tr>
-        ${p.rows
-          .map(
-            (r) => `<tr>
-              <td>${esc(r.date)}</td>
-              <td>${esc(r.title)}${r.note ? " \u2013 " + esc(r.note) : ""}</td>
-              <td class="r">${r.kind === "invoice" ? money(r.amount) : ""}</td>
-            <td class="r">${r.kind === "payment" || r.kind === "return" ? money(r.amount) : ""}</td>
-            </tr>`
+       
+<tr>
+  <td>${esc(r.date)}</td>
+  ${
+    r.kind === "balance"
+      ? `
+        <td colspan="2">
+          <b>${esc(r.title)}</b>
+          ${r.note ? " – " + esc(r.note) : ""}
+        </td>
+        <td class="r"><b>${money(r.amount)}</b></td>
+      `
+      : `
+        <td>
+          ${esc(r.title)}
+          ${r.note ? " – " + esc(r.note) : ""}
+        </td>
+        <td class="r">
+          ${r.kind === "invoice" ? money(r.amount) : ""}
+        </td>
+        <td class="r">
+          ${
+            r.kind === "payment" || r.kind === "return"
+              ? money(r.amount)
+              : ""
+          }
+        </td>
+      `
+  }
+</tr>
           )
           .join("")}
         <tr class="tot"><td colspan="2">Total</td><td class="r">${money(p.totalInvoiced)}</td><td class="r">${money(p.totalReceived)}</td></tr>
-        <tr class="tot"><td colspan="3">Outstanding</td><td class="r due">${money(p.outstanding)}</td></tr>
+        <tr class="tot">
+  <td colspan="3">
+    ${selectedDate ? "Closing Balance" : "Outstanding"}
+  </td>
+  <td class="r due">${money(p.outstanding)}</td>
+</tr>
       </table>
     </body></html>`;
 

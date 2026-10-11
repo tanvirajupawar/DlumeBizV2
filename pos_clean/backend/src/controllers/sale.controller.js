@@ -80,20 +80,24 @@ const normalizedCustomerId =
     ? null
     : customer_id;
 
+
+let customerForSale = null;
+
 if (normalizedCustomerId) {
-  const customer = await Customer.findOne({
+  customerForSale = await Customer.findOne({
     _id: normalizedCustomerId,
     company_id: companyId,
     is_active: true,
   });
 
-  if (!customer) {
+  if (!customerForSale) {
     return res.status(404).json({
       success: false,
       message: "Customer not found",
     });
   }
 }
+
 
     // --------------------------------
     // 5. VALIDATE DISCOUNT
@@ -186,6 +190,62 @@ if (normalizedCustomerId) {
 
     const totalAmount = subtotal - discount;
 
+
+    
+    // --------------------------------
+    // CALCULATE PREVIOUS OUTSTANDING
+    // --------------------------------
+
+    let previousOutstanding = 0;
+
+    if (normalizedCustomerId && customerForSale) {
+      // Get this customer's existing invoices
+      const previousSales = await Sale.find({
+        company_id: companyId,
+        customer_id: normalizedCustomerId,
+      })
+        .select("_id total_amount")
+        .lean();
+
+      const previousSaleIds = previousSales.map(
+        (previousSale) => previousSale._id
+      );
+
+      // Calculate the total value of previous invoices
+      const previousSalesTotal = previousSales.reduce(
+        (sum, previousSale) =>
+          sum + Number(previousSale.total_amount || 0),
+        0
+      );
+
+      // Calculate payments allocated to those invoices
+      const previousAllocations = previousSaleIds.length
+        ? await PaymentAllocation.find({
+            company_id: companyId,
+            sale_id: { $in: previousSaleIds },
+          }).lean()
+        : [];
+
+      const previousPaymentsTotal = previousAllocations.reduce(
+        (sum, allocation) =>
+          sum + Number(allocation.amount || 0),
+        0
+      );
+
+      const openingBalance = Number(
+        customerForSale.opening_balance || 0
+      );
+
+      previousOutstanding = Number(
+        (
+          openingBalance +
+          previousSalesTotal -
+          previousPaymentsTotal
+        ).toFixed(2)
+      );
+    }
+
+
     // --------------------------------
     // 8. GENERATE INVOICE NUMBER
     // --------------------------------
@@ -196,22 +256,26 @@ if (normalizedCustomerId) {
     // 9. CREATE SALE
     // --------------------------------
 
-    const sale = await Sale.create({
-      company_id: companyId,
-     customer_id: normalizedCustomerId,
+    
+const sale = await Sale.create({
+  company_id: companyId,
+  customer_id: normalizedCustomerId,
 
-      source,
-      sale_mode,
+  source,
+  sale_mode,
 
-      invoice_no: invoiceNo,
-      invoice_date: new Date(),
+  invoice_no: invoiceNo,
+  invoice_date: new Date(),
 
-      subtotal,
-      discount_amount: discount,
-      total_amount: totalAmount,
+  subtotal,
+  discount_amount: discount,
+  total_amount: totalAmount,
 
-      created_by: req.user._id,
-    });
+  previous_outstanding: previousOutstanding,
+
+  created_by: req.user._id,
+});
+
 
     // --------------------------------
     // 10. CREATE SALE ITEMS
@@ -252,17 +316,21 @@ if (
       success: true,
       message: "Sale created successfully",
 
-      data: {
-        sale_id: sale._id,
-        invoice_no: sale.invoice_no,
-        source: sale.source,
-        sale_mode: sale.sale_mode,
-        customer_id: sale.customer_id,
 
-        subtotal: sale.subtotal,
-        discount_amount: sale.discount_amount,
-        total_amount: sale.total_amount,
-      },
+data: {
+  sale_id: sale._id,
+  invoice_no: sale.invoice_no,
+  source: sale.source,
+  sale_mode: sale.sale_mode,
+  customer_id: sale.customer_id,
+
+  subtotal: sale.subtotal,
+  discount_amount: sale.discount_amount,
+  total_amount: sale.total_amount,
+
+  previous_outstanding: sale.previous_outstanding,
+},
+
     });
   } catch (error) {
     console.error("Create sale error:", error);
