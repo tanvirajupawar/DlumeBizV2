@@ -1,3 +1,4 @@
+
 import React, {
   createContext,
   useContext,
@@ -12,71 +13,96 @@ const AuthContext = createContext(null);
 
 const AUTH_STORAGE_KEY = "dlumebiz_auth";
 
-
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
   const [company, setCompany] = useState(null);
   const [companyLoading, setCompanyLoading] = useState(false);
 
-const fetchCompany = async () => {
-  try {
-    setCompanyLoading(true);
+  // Keep navigation from redirecting before session restoration finishes.
+  const [isLoading, setIsLoading] = useState(true);
 
-    const response = await API.get("/companies/me");
-
-    const companyData =
-      response.data?.data ||
-      response.data?.company ||
-      response.data;
-
-    setCompany(companyData);
-
-    return companyData;
-  } catch (error) {
-    console.error(
-      "❌ Failed to fetch company:",
-      error.response?.data || error.message
-    );
-
-    return null;
-  } finally {
-    setCompanyLoading(false);
-  }
-};
-
-
-  useEffect(() => {
-  const restoreSession = async () => {
+  const fetchCompany = async () => {
     try {
-      const storedAuth = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+      setCompanyLoading(true);
 
-      if (!storedAuth) {
-        return;
-      }
+      const response = await API.get("/companies/me");
 
-      const parsedAuth = JSON.parse(storedAuth);
+      const companyData =
+        response.data?.data ||
+        response.data?.company ||
+        response.data;
 
-setUser(parsedAuth.user);
-setAccessToken(parsedAuth.accessToken);
-setCompany(parsedAuth.user?.company || null);
-setAuthToken(parsedAuth.accessToken);
+      setCompany(companyData);
+      return companyData;
     } catch (error) {
-      console.error("❌ Failed to restore session:", error);
-      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+      console.error(
+        "❌ Failed to fetch company:",
+        error.response?.data || error.message
+      );
+
+      return null;
+    } finally {
+      setCompanyLoading(false);
     }
   };
 
-  restoreSession();
-}, []);
+  useEffect(() => {
+    let isMounted = true;
+
+    const restoreSession = async () => {
+      try {
+        const storedAuth = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+
+        if (!storedAuth) {
+          setAuthToken(null);
+          return;
+        }
+
+        const parsedAuth = JSON.parse(storedAuth);
+
+        if (!parsedAuth?.user || !parsedAuth?.accessToken) {
+          console.warn("⚠️ Saved session is incomplete.");
+          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+          setAuthToken(null);
+          return;
+        }
+
+        if (!isMounted) return;
+
+        setAuthToken(parsedAuth.accessToken);
+        setUser(parsedAuth.user);
+        setAccessToken(parsedAuth.accessToken);
+        setCompany(parsedAuth.user?.company || null);
+
+        console.log("✅ Saved login session restored.");
+      } catch (error) {
+        console.error("❌ Failed to restore session:", error);
+
+        // Remove storage only if it cannot be read or parsed.
+        try {
+          await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        } catch (storageError) {
+          console.error("❌ Failed to clear invalid session:", storageError);
+        }
+
+        setAuthToken(null);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const login = async ({ userData, accessToken }) => {
-setUser(userData);
-setAccessToken(accessToken);
-setCompany(userData?.company || null);
-setAuthToken(accessToken);
-
+    // Save first so the session is persisted before considering login complete.
     await AsyncStorage.setItem(
       AUTH_STORAGE_KEY,
       JSON.stringify({
@@ -84,34 +110,45 @@ setAuthToken(accessToken);
         accessToken,
       })
     );
+
+    setAuthToken(accessToken);
+    setUser(userData);
+    setAccessToken(accessToken);
+    setCompany(userData?.company || null);
   };
 
-const logout = async () => {
-  try {
-    await logoutUser();
-  } catch (error) {
-    console.log("❌ Logout API error:", error.message);
-  }
+  const logout = async () => {
+    try {
+      await logoutUser();
+    } catch (error) {
+      console.log("❌ Logout API error:", error.message);
+    }
 
-setUser(null);
-setAccessToken(null);
-setCompany(null);
-setAuthToken(null);
+    // Explicit logout clears the locally saved session.
+    setUser(null);
+    setAccessToken(null);
+    setCompany(null);
+    setAuthToken(null);
 
-  await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-};
+    try {
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch (error) {
+      console.error("❌ Failed to clear saved session:", error);
+    }
+  };
 
   return (
     <AuthContext.Provider
-     value={{
-  user,
-  accessToken,
-  company,
-  companyLoading,
-  fetchCompany,
-  login,
-  logout,
-}}
+      value={{
+        user,
+        accessToken,
+        company,
+        companyLoading,
+        isLoading,
+        fetchCompany,
+        login,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

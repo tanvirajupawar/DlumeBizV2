@@ -64,7 +64,23 @@ const entryDate = (i) =>
   i.payment_date ||
   i.order_date ||
   i.date;
-const totalOf = (i) => Number(i.total_amount ?? i.amount ?? 0);
+
+  
+const totalOf = (i) => {
+  if (isOpening(i)) {
+    return Number(
+      i.balance_amount ?? i.total_amount ?? i.amount ?? 0
+    );
+  }
+
+  // Backend total_amount is already after discount.
+  const total = Number(i.total_amount ?? i.amount ?? 0);
+
+  return Math.max(0, Number.isFinite(total) ? total : 0);
+};
+
+
+
 const openingAmount = (i) =>
   Number(i.balance_amount ?? i.total_amount ?? i.amount ?? 0);
 const esc = (s) =>
@@ -177,6 +193,13 @@ export default function CustomerAccountScreen({
         }
 
       const invoices = invoicesRes?.data?.data ?? invoicesRes?.data ?? [];
+
+      console.log(
+  "🔍 INVOICE DISCOUNT DEBUG:",
+  JSON.stringify(invoices?.[0], null, 2)
+);
+
+
 const payments = paymentsRes?.data?.data ?? paymentsRes?.data ?? [];
 
 const returns = returnsRes?.data?.data ?? returnsRes?.data ?? [];
@@ -348,6 +371,7 @@ const outstanding = useMemo(() => {
 }, [account]);
 
   // ── Summary rows (respect date filter) ──
+
 const summaryRows = useMemo(
   () =>
     ledger
@@ -375,17 +399,28 @@ const summaryRows = useMemo(
           };
         }
 
-        return {
-          id: i._key,
-          kind: "invoice",
-          date: entryDate(i),
-          title: i.invoice_no || i.invoiceNo || "Invoice",
-          note: "",
-          amount: totalOf(i),
-        };
+        // Invoice: show discounted/payable amount.
+
+const discount = Number(
+  i.discount_amount ??
+  i.discountAmount ??
+  i.discount ??
+  0
+);
+
+return {
+  id: i._key,
+  kind: "invoice",
+  date: entryDate(i),
+  title: i.invoice_no || i.invoiceNo || "Invoice",
+  note: discount > 0 ? `Discount: ${money(discount)}` : "",
+  amount: totalOf(i),
+};
+
       }),
   [ledger]
 );
+
 
   const totals = useMemo(
     () =>

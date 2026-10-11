@@ -91,6 +91,7 @@ export default function POSScreen() {
 
 const [paymentLoading, setPaymentLoading] = useState(false);
 const [paymentFetching, setPaymentFetching] = useState(false);
+const [customerPaymentResult, setCustomerPaymentResult] = useState(null);
   const [profileVisible, setProfileVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [cartItems, setCartItems] = useState([]);
@@ -601,6 +602,49 @@ const handleCustomerPay = async (customer) => {
 };
 
 
+const getInvoicePayableAmount = (invoice) => {
+  const numberOrNull = (value) => {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
+  // Prefer fields that already contain the final payable amount.
+  const payableFields = [
+    "payable_total",
+    "grand_total",
+    "total_after_discount",
+    "net_amount",
+  ];
+
+  for (const field of payableFields) {
+    const value = numberOrNull(invoice?.[field]);
+
+    if (value !== null) {
+      return Math.max(0, value);
+    }
+  }
+
+  // Otherwise calculate subtotal minus discount.
+  const subtotal = numberOrNull(invoice?.subtotal)
+    ?? numberOrNull(invoice?.total_amount)
+    ?? numberOrNull(invoice?.total)
+    ?? 0;
+
+  const discount =
+    numberOrNull(invoice?.discount_amount)
+    ?? numberOrNull(invoice?.discountAmount)
+    ?? numberOrNull(invoice?.discount)
+    ?? 0;
+
+  return Math.max(0, subtotal - discount);
+};
+
+
+
 const handlePrintCustomerSummary = async (customer, range) => {
   try {
     const customerId = customer?._id || customer?.id;
@@ -677,48 +721,39 @@ const handlePrintCustomerSummary = async (customer, range) => {
       .filter(isInRange);
 
     // Convert to printable ledger rows
-const invoiceRows = filteredInvoices.map((invoice) => ({
-  date: getDate(invoice).toLocaleDateString("en-GB"),
-  kind: "invoice",
 
-  title:
-    invoice.invoice_no ||
-    invoice.invoiceNo ||
-    "Invoice",
+const invoiceRows = filteredInvoices.map((invoice) => {
+  const discount = Number(
+    invoice.discount_amount ??
+    invoice.discountAmount ??
+    invoice.discount ??
+    0
+  );
 
-  note: "",
+  return {
+    date: getDate(invoice).toLocaleDateString("en-GB"),
+    kind: "invoice",
+    title: invoice.invoice_no || invoice.invoiceNo || "Invoice",
+    note: discount > 0 ? `Discount: ₹${discount.toLocaleString("en-IN")}` : "",
+    amount: getInvoicePayableAmount(invoice),
 
-  amount: Number(
-    invoice.total_amount ??
-      invoice.amount ??
-      0
-  ),
+    lines: Array.isArray(invoice.items)
+      ? invoice.items.map((item) => ({
+          qty: Number(item?.qty ?? item?.quantity ?? 0),
+          rate: Number(
+            item?.rate ??
+            item?.price ??
+            item?.selling_price ??
+            item?.unit_price ??
+            0
+          ),
+          amount: Number(item?.amount ?? 0),
+        }))
+      : [],
 
-  lines: Array.isArray(invoice.items)
-    ? invoice.items.map((item) => ({
-        qty: Number(
-          item?.qty ??
-          item?.quantity ??
-          0
-        ),
-
-        rate: Number(
-          item?.rate ??
-          item?.price ??
-          item?.selling_price ??
-          item?.unit_price ??
-          0
-        ),
-
-        amount: Number(
-          item?.amount ??
-          0
-        ),
-      }))
-    : [],
-
-  sortDate: getDate(invoice).getTime(),
-}));
+    sortDate: getDate(invoice).getTime(),
+  };
+});
 
 console.log(
   "🔥🔥🔥 INVOICE ITEMS BEFORE PRINT:",
@@ -786,7 +821,7 @@ const broughtForwardTransactions = [
   ...(Array.isArray(invoices) ? invoices : []).map((invoice) => ({
     date: getDate(invoice),
     kind: "invoice",
-    amount: Number(invoice.total_amount ?? invoice.amount ?? 0),
+amount: getInvoicePayableAmount(invoice),
   })),
   ...(Array.isArray(payments) ? payments : []).map((payment) => ({
     date: getDate(payment),
@@ -1549,72 +1584,52 @@ const returnItems = activeCartItems.map((item) => ({
     setIsSubmittingReturn(true);
 
     try {
-      const response = await createCustomerReturn({
-        customer_id: customerId,
-        items: returnItems,
-      });
 
-      
-const payload = response?.data ?? response;
-const result = payload?.data ?? payload;
-
-
-const broughtForwardTransactions = [
-  ...(Array.isArray(invoices) ? invoices : []).map((invoice) => ({
-    date: getDate(invoice),
-    kind: "invoice",
-    amount: Number(invoice.total_amount ?? invoice.amount ?? 0),
-  })),
-  ...(Array.isArray(payments) ? payments : []).map((payment) => ({
-    date: getDate(payment),
-    kind: "payment",
-    amount: Number(payment.amount || 0),
-  })),
-].filter((row) => {
-  if (!from) return false;
-
-  const transactionDate = row.date;
-  const startDate = new Date(from);
-  startDate.setHours(0, 0, 0, 0);
-
-  return (
-    !Number.isNaN(transactionDate.getTime()) &&
-    transactionDate < startDate
-  );
+const response = await createCustomerReturn({
+  customer_id: customerId,
+  items: returnItems,
 });
 
-const openingBalance = broughtForwardTransactions.reduce(
-  (balance, row) =>
-    balance +
-    (row.kind === "invoice" ? row.amount : -row.amount),
-  originalOpeningBalance
-);
-
-
-
+const payload = response?.data ?? response;
+const result = payload?.data ?? payload;
 
 const customerName =
   returnSelectedCustomer?.customer_name ||
   `${returnSelectedCustomer?.first_name || ""} ${
     returnSelectedCustomer?.last_name || ""
   }`.trim() ||
-  "Walk-in Customer";
+  "Customer";
 
-
+// Clear the return cart and exit return mode.
 setReturnCartItems([]);
 setReturnSelectedCustomer(WALK_IN_CUSTOMER);
+setIsReturnMode(false);
+setManagedItem(null);
+setActiveNav("cart");
 
-// Navigate immediately so the POS does not briefly render
-// its normal cart screen before showing return success.
+
+// Refresh customer balances.
+// Refresh customer balances.
+loadCustomers({ silent: true });
+
+// Navigate to the return success screen.
 navigation.navigate("POSReturnSuccess", {
-  returnNo: result.return_no || "",
-  amount: Number(result.total_amount || 0),
-  outstanding: Number(result.outstanding_after_return || 0),
+  returnNo: result?.return_no || result?.returnNo || "",
+  amount: Number(
+    result?.total_amount ??
+    result?.totalAmount ??
+    subtotal ??
+    0
+  ),
+  outstanding: Number(
+    result?.outstanding ??
+    result?.customer_outstanding ??
+    activeCustomer?.outstanding ??
+    0
+  ),
   customerName,
 });
 
-// Refresh customers in the background.
-loadCustomers({ silent: true });
 
 
 
@@ -1636,6 +1651,8 @@ loadCustomers({ silent: true });
 
     return;
   }
+
+
 
   // Existing Sale checkout — unchanged
   const isCreditMode =

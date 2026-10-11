@@ -129,10 +129,14 @@ const {
   mobile = "",
   email = "",
   company_name = "",
+
   address1 = "",
   address2 = "",
+  city = "",
   state = "",
+  pincode = "",
   opening_balance = "",
+
 } = values;
 
  const [saving, setSaving] = useState(false);          
@@ -263,11 +267,28 @@ const {
               onChangeText={(t) => onChange("address2", t)}
               placeholder="Area name"
             />
-            <SelectField
-              label="State"
-              value={state || "Select State"}
-              onPress={() => setStateModalVisible(true)}
-            />
+        
+<FormField
+  label="City"
+  value={city}
+  onChangeText={(t) => onChange("city", t)}
+  placeholder="e.g. Mumbai"
+/>
+
+<SelectField
+  label="State"
+  value={state || "Select State"}
+  onPress={() => setStateModalVisible(true)}
+/>
+
+<FormField
+  label="Pincode"
+  value={pincode}
+  onChangeText={(t) => onChange("pincode", t)}
+  placeholder="e.g. 400001"
+  keyboardType="numeric"
+/>
+
           </View>
         </View>
    </ScrollView>

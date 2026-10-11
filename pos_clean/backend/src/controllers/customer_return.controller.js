@@ -397,26 +397,32 @@ const returnNo = `RET-${String(counter.next_number).padStart(5, "0")}`;
         ) / 100,
       },
     });
-  } catch (error) {
-    console.error("Create customer return error:", error);
 
-    if (transactionStarted) {
-      try {
-        await session.abortTransaction();
-      } catch (abortError) {
-        console.error("Return transaction abort error:", abortError);
-      }
+} catch (error) {
+  console.error("Create customer return error:", error);
+  console.error("Error stack:", error.stack);
+
+  if (transactionStarted) {
+    try {
+      await session.abortTransaction();
+    } catch (abortError) {
+      console.error("Return transaction abort error:", abortError);
     }
+  }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create customer return",
-      error: error.message,
-    });
+  return res.status(500).json({
+    success: false,
+    message: "Failed to create customer return",
+    error: error.message,
+  });
+
   } finally {
     await session.endSession();
   }
 };
+
+
+
 
 
 

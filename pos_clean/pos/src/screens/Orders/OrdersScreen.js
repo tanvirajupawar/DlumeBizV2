@@ -218,8 +218,10 @@ const mapInvoice = (inv, returnsBySalesId) => {
   const subTotal = items.reduce((s, it) => s + it.amount, 0);
   const grandTotal = totalAmount > 0 ? totalAmount : subTotal;
 const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
-const previousOutstanding = Number(inv.previous_outstanding || 0);
   const tax = Number(inv.tax_amount || inv.tax || 0);
+  const previousOutstanding = Number(
+  inv.previous_outstanding ?? inv.previousOutstanding ?? 0
+);
 
   return {
     id: invId,
@@ -396,6 +398,7 @@ customerNumber:
   companyEmail: company?.email || user?.email || "",
 
   invoiceNo: order.invoiceNo,
+  invoiceOnly: true,
   invoiceDate: order.date || new Date().toISOString(),
 
   customerName:
@@ -408,7 +411,7 @@ subtotal: order.subTotal,
 totalDiscount: order.discount,
 totalTax: order.tax,
 grandTotal: order.grandTotal,
-previousOutstanding: order.previousOutstanding,
+
 amountReceived: order.paidAmount,
 
   receipt_size: "58mm",
@@ -1109,11 +1112,7 @@ const handlePrint = async () => {
         <div class="divider"></div>
 
         <div class="totals-row"><span>Subtotal</span><span>${"\u20B9"}${money(receipt.subtotal)}</span></div>
-        ${
-  receipt.previousOutstanding > 0
-    ? `<div class="totals-row"><span>Previous Outstanding</span><span>${"\u20B9"}${money(receipt.previousOutstanding)}</span></div>`
-    : ""
-}
+
         ${
           receipt.totalDiscount > 0
             ? `<div class="totals-row"><span>Discount</span><span>-${"\u20B9"}${money(receipt.totalDiscount)}</span></div>`
