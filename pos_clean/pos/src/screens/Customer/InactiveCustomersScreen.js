@@ -1,0 +1,661 @@
+import React, { useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  FlatList,
+  ScrollView,
+  Modal,
+  StyleSheet,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { COLORS, SPACING } from "../../components/Colors";
+
+const getName = (c) =>
+  (
+    c.customer_name ||
+    `${c.first_name || ""} ${c.last_name || ""}`
+  ).trim() || "Unnamed Customer";
+
+const getPhone = (c) => c.contact_no_1 || "";
+
+const getCompany = (c) => c.company_name || c.company || "";
+
+const money = (value) =>
+  "₹" +
+  Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const MUTED = {
+  rowBg: "#F3F4F6",
+  text: "#9CA3AF",
+  pillBg: "#E5E7EB",
+  pillText: "#6B7280",
+  border: "#D1D5DB",
+};
+
+const SUMMARY_RANGES = [
+  { key: "1d", label: "1 Day", days: 1 },
+  { key: "1w", label: "1 Week", days: 7 },
+  { key: "1m", label: "1 Month", months: 1 },
+  { key: "3m", label: "3 Months", months: 3 },
+  { key: "6m", label: "6 Months", months: 6 },
+  { key: "all", label: "All" },
+];
+
+const getRangeStart = (range) => {
+  if (!range.days && !range.months) return null;
+
+  const d = new Date();
+  if (range.days) d.setDate(d.getDate() - range.days);
+  if (range.months) d.setMonth(d.getMonth() - range.months);
+
+  return d;
+};
+
+export default function InactiveCustomersScreen({
+  customers = [],
+  onCustomerPress,
+  onPayPress,
+  onPrintSummary,
+  searchValue = "",
+  onBack,
+}) {
+  const [summaryCustomer, setSummaryCustomer] = useState(null);
+
+  const handleSelectRange = (range) => {
+    const customer = summaryCustomer;
+    setSummaryCustomer(null);
+
+    onPrintSummary?.(customer, {
+      key: range.key,
+      label: range.label,
+      from: getRangeStart(range),
+      to: new Date(),
+    });
+  };
+
+  const inactiveCustomers = useMemo(() => {
+    const q = searchValue.trim().toLowerCase();
+
+    return customers
+      .filter((c) => c?.is_active === false)
+      .filter((c) => {
+        if (!q) return true;
+
+        return (
+          getName(c).toLowerCase().includes(q) ||
+          String(getPhone(c)).toLowerCase().includes(q) ||
+          getCompany(c).toLowerCase().includes(q)
+        );
+      });
+  }, [customers, searchValue]);
+
+  const renderRow = ({ item, index }) => {
+    const outstanding = Number(item?.outstanding || 0);
+
+    return (
+      <Pressable
+        onPress={() => onCustomerPress?.(item)}
+        style={({ pressed }) => [
+          styles.tr,
+          styles.trInactive,
+          pressed && styles.trPressed,
+        ]}
+      >
+        <Text style={[styles.td, styles.colSr, styles.mutedText]}>
+          {index + 1}
+        </Text>
+
+        <View style={[styles.colName, styles.nameCell]}>
+          <Text
+            style={[styles.tdName, styles.mutedText, styles.nameText]}
+            numberOfLines={1}
+          >
+            {getName(item)}
+          </Text>
+
+          <View style={styles.inactivePill}>
+            <Text style={styles.inactivePillText}>Inactive</Text>
+          </View>
+        </View>
+
+        <Text
+          style={[styles.td, styles.colPhone, styles.mutedText]}
+          numberOfLines={1}
+        >
+          {getPhone(item) || "—"}
+        </Text>
+
+        <Text
+          style={[styles.td, styles.colCompany, styles.mutedText]}
+          numberOfLines={1}
+        >
+          {getCompany(item) || "—"}
+        </Text>
+
+        <Text
+          style={[
+            styles.tdMoney,
+            styles.colOutstanding,
+            styles.mutedText,
+          ]}
+          numberOfLines={1}
+        >
+          {money(outstanding)}
+        </Text>
+
+        <View style={styles.colActions}>
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation?.();
+              setSummaryCustomer(item);
+            }}
+            style={({ pressed }) => [
+              styles.printButton,
+              styles.printButtonInactive,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.printButtonText,
+                styles.buttonTextInactive,
+              ]}
+            >
+              PRINT
+            </Text>
+          </Pressable>
+
+          <Pressable
+            disabled
+            onPress={() => onPayPress?.(item)}
+            style={[
+              styles.payButton,
+              styles.payButtonInactive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.payButtonText,
+                styles.buttonTextInactive,
+              ]}
+            >
+              PAY
+            </Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+   <View style={styles.pageHeader}>
+  <Pressable
+    onPress={onBack}
+    hitSlop={8}
+    style={styles.backButton}
+    testID="inactive-customers-back-button"
+  >
+    <Ionicons name="arrow-back" size={28} color={COLORS.textOnDark} />
+  </Pressable>
+
+
+
+  <Text style={styles.pageCount}>
+    {inactiveCustomers.length} inactive
+  </Text>
+</View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.horizontalContent}
+      >
+        <View style={styles.table}>
+          <View style={[styles.tr, styles.thRow]}>
+            <Text style={[styles.th, styles.colSr]}>Sr</Text>
+            <Text style={[styles.th, styles.colName]}>Name</Text>
+            <Text style={[styles.th, styles.colPhone]}>Phone</Text>
+            <Text style={[styles.th, styles.colCompany]}>Company</Text>
+            <Text style={[styles.th, styles.colOutstanding]}>
+              Outstanding
+            </Text>
+            <View style={styles.colActions}>
+              <Text style={styles.th}>Action</Text>
+            </View>
+          </View>
+
+          {inactiveCustomers.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyTitle}>
+                {searchValue.trim()
+                  ? "No matching inactive customers"
+                  : "No inactive customers found"}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={inactiveCustomers}
+              keyExtractor={(item, index) =>
+                String(item._id || item.id || index)
+              }
+              renderItem={renderRow}
+              ItemSeparatorComponent={() => (
+                <View style={styles.rowDivider} />
+              )}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            />
+          )}
+        </View>
+      </ScrollView>
+
+      <Modal
+        visible={!!summaryCustomer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSummaryCustomer(null)}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setSummaryCustomer(null)}
+        >
+          <Pressable
+            style={styles.modalCard}
+            onPress={() => {}}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderText}>
+                <Text style={styles.modalTitle}>Print Summary</Text>
+                <Text
+                  style={styles.modalSubtitle}
+                  numberOfLines={1}
+                >
+                  {summaryCustomer ? getName(summaryCustomer) : ""}
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={() => setSummaryCustomer(null)}
+                hitSlop={10}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalLabel}>SELECT PERIOD</Text>
+
+            <View style={styles.rangeGrid}>
+              {SUMMARY_RANGES.map((range) => (
+                <Pressable
+                  key={range.key}
+                  onPress={() => handleSelectRange(range)}
+                  style={({ pressed }) => [
+                    styles.rangeChip,
+                    pressed && styles.rangeChipPressed,
+                  ]}
+                >
+                  <Text style={styles.rangeChipText}>
+                    {range.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    width: "100%",
+    backgroundColor: COLORS.card,
+  },
+
+pageHeader: {
+  height: 72,
+  backgroundColor: COLORS.navy,
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: SPACING.lg,
+},
+
+backButton: {
+  width: 52,
+  height: 52,
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 10,
+},
+
+pageTitle: {
+  flex: 1,
+  marginLeft: SPACING.sm,
+  fontSize: 22,
+  fontWeight: "600",
+  color: COLORS.textOnDark,
+},
+
+pageCount: {
+  fontSize: 15,
+  fontWeight: "500",
+  color: COLORS.textOnDark,
+  opacity: 0.7,
+},
+
+  backText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.blue,
+  },
+
+  headerTitleContainer: {
+    flex: 1,
+    marginLeft: 8,
+  },
+
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+  },
+
+  pageSubtitle: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginTop: 3,
+  },
+
+  horizontalContent: {
+    flexGrow: 1,
+    width: "100%",
+  },
+
+  table: {
+    flex: 1,
+    width: "100%",
+    minWidth: 820,
+    backgroundColor: COLORS.card,
+  },
+
+  tr: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 14,
+  },
+
+  trInactive: {
+    backgroundColor: MUTED.rowBg,
+  },
+
+  thRow: {
+    backgroundColor: COLORS.bg,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+  },
+
+  rowDivider: {
+    height: 1,
+    backgroundColor: COLORS.divider,
+  },
+
+  trPressed: {
+    opacity: 0.6,
+  },
+
+  th: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  td: {
+    fontSize: 16,
+    color: COLORS.textPrimary,
+  },
+
+  tdName: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: COLORS.blue,
+  },
+
+  tdMoney: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+  },
+
+  mutedText: {
+    color: MUTED.text,
+  },
+
+  nameCell: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  nameText: {
+    flexShrink: 1,
+  },
+
+  inactivePill: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: MUTED.pillBg,
+  },
+
+  inactivePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: MUTED.pillText,
+  },
+
+  colSr: {
+    flex: 0.5,
+    paddingRight: SPACING.md,
+  },
+
+  colName: {
+    flex: 2,
+    paddingRight: SPACING.md,
+  },
+
+  colPhone: {
+    flex: 1.4,
+    paddingRight: SPACING.md,
+  },
+
+  colCompany: {
+    flex: 1.8,
+    paddingRight: SPACING.md,
+  },
+
+  colOutstanding: {
+    flex: 1.4,
+    paddingRight: SPACING.md,
+  },
+
+  colActions: {
+    width: 190,
+    flexGrow: 0,
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+
+  emptyBox: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 50,
+  },
+
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+
+  payButton: {
+    width: 80,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: COLORS.blue,
+    borderWidth: 1.5,
+    borderColor: COLORS.blue,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  payButtonInactive: {
+    backgroundColor: MUTED.pillBg,
+    borderColor: MUTED.border,
+  },
+
+  payButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: COLORS.textOnDark,
+  },
+
+  printButton: {
+    width: 80,
+    height: 38,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  printButtonInactive: {
+    borderColor: MUTED.border,
+    backgroundColor: MUTED.rowBg,
+  },
+
+  printButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: COLORS.blue,
+  },
+
+  buttonTextInactive: {
+    color: MUTED.text,
+  },
+
+  buttonPressed: {
+    opacity: 0.7,
+  },
+
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    padding: 20,
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+
+  modalHeaderText: {
+    flex: 1,
+    paddingRight: 10,
+  },
+
+  modalTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+  },
+
+  modalSubtitle: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+
+  closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: COLORS.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  closeText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.textSecondary,
+  },
+
+  modalLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: COLORS.textSecondary,
+    marginBottom: 10,
+  },
+
+  rangeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+
+  rangeChip: {
+    width: "31%",
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    backgroundColor: COLORS.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  rangeChipPressed: {
+    borderColor: COLORS.blue,
+    opacity: 0.8,
+  },
+
+  rangeChipText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.textPrimary,
+  },
+});

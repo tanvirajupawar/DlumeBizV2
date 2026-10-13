@@ -60,6 +60,7 @@ import OrdersScreen from "../Orders/OrdersScreen";
 import PaymentsScreen from "../Payment/PaymentsScreen";
 import CustomerListScreen from "../Customer/CustomerListScreen";
 import CustomerAccountScreen from "../Customer/CustomerAccountScreen";
+import InactiveCustomersScreen from "../Customer/InactiveCustomersScreen";
    import { fetchCategories } from "../../api/category";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import CategoryModal from "../../components/CategoryModal";
@@ -111,6 +112,8 @@ const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
   const [managedItem, setManagedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
 const [customerListSearch, setCustomerListSearch] = useState("");
+const [showInactiveCustomersPage, setShowInactiveCustomersPage] =
+  useState(false);
 const [editingCustomer, setEditingCustomer] = useState(null); // null = add mode
 const [accountRefreshKey, setAccountRefreshKey] = useState(0);
 const [transportationFocused, setTransportationFocused] = useState(false);
@@ -1462,7 +1465,10 @@ useEffect(() => {
  activeNav !== "inventory" &&
  activeNav !== "payments" &&
  activeNav !== "productForm" && 
- !(activeNav === "customers" && selectedCustomerAccount) && (
+!(
+  activeNav === "customers" &&
+  (selectedCustomerAccount || showInactiveCustomersPage)
+) && (
 
   
 <Header
@@ -1811,9 +1817,23 @@ if (isCreditMode && selectedCustomer !== WALK_IN_CUSTOMER) {
                 />
               </View>
             )}
+```jsx
 {activeNav === "customers" && (
   <View style={styles.fullContent}>
-    {selectedCustomerAccount ? (
+    {showInactiveCustomersPage ? (
+      <InactiveCustomersScreen
+        customers={customers.filter((c) => c.is_active === false)}
+        searchValue={customerListSearch}
+        onSearchChange={setCustomerListSearch}
+        onBack={() => setShowInactiveCustomersPage(false)}
+        onCustomerPress={(customer) => {
+          setSelectedCustomerAccount(customer);
+          setShowInactiveCustomersPage(false);
+        }}
+        onPayPress={handleCustomerPay}
+        onPrintSummary={handlePrintCustomerSummary}
+      />
+    ) : selectedCustomerAccount ? (
       <CustomerAccountScreen
         key={`${selectedCustomerAccount._id || selectedCustomerAccount.id}-${accountRefreshKey}`}
         customer={selectedCustomerAccount}
@@ -1828,10 +1848,15 @@ if (isCreditMode && selectedCustomer !== WALK_IN_CUSTOMER) {
         onCustomerPress={(customer) => setSelectedCustomerAccount(customer)}
         onPayPress={handleCustomerPay}
         onPrintSummary={handlePrintCustomerSummary}
+        onOpenInactiveCustomers={() => {
+          setCustomerListSearch("");
+          setShowInactiveCustomersPage(true);
+        }}
       />
     )}
   </View>
 )}
+```
 
 {activeNav === "orders" && (
   <View style={styles.fullContent}>

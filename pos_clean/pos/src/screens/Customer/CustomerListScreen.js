@@ -69,6 +69,7 @@ export default function CustomerListScreen({
   onPayPress,
   onPrintSummary,
   searchValue = "",
+  onOpenInactiveCustomers,
 }) {
   const search = searchValue;
   const [summaryCustomer, setSummaryCustomer] = useState(null);
@@ -101,41 +102,40 @@ export default function CustomerListScreen({
   }, [customers, search]);
 
   // Active first, then a divider, then inactive. Sr numbers run straight through.
-  const listData = useMemo(() => {
-    const active = filteredCustomers.filter((c) => !isInactive(c));
-    const inactive = filteredCustomers.filter(isInactive);
+const listData = useMemo(() => {
+  const active = filteredCustomers.filter((c) => !isInactive(c));
+  const inactive = filteredCustomers.filter(isInactive);
 
-    const rows = active.map((c, i) => ({
-      type: "customer",
-      customer: c,
-      sr: i + 1,
-    }));
+  const rows = active.map((c, i) => ({
+    type: "customer",
+    customer: c,
+    sr: i + 1,
+  }));
 
-    if (inactive.length > 0) {
-      rows.push({ type: "divider", count: inactive.length });
-      inactive.forEach((c, i) => {
-        rows.push({
-          type: "customer",
-          customer: c,
-          sr: active.length + i + 1,
-        });
-      });
-    }
+  if (inactive.length > 0) {
+    rows.push({
+      type: "divider",
+      count: inactive.length,
+    });
+  }
 
-    return rows;
-  }, [filteredCustomers]);
+  return rows;
+}, [filteredCustomers]);
 
   const renderRow = ({ item: entry }) => {
     // ── Divider between active and inactive ──
-    if (entry.type === "divider") {
-      return (
-        <View style={styles.sectionDivider}>
-          <Text style={styles.sectionDividerText}>
-            Inactive customers ({entry.count})
-          </Text>
-        </View>
-      );
-    }
+if (entry.type === "divider") {
+  return (
+    <Pressable
+      onPress={() => onOpenInactiveCustomers?.()}
+      style={styles.sectionDivider}
+    >
+      <Text style={styles.sectionDividerText}>
+        Inactive customers ({entry.count}) 
+      </Text>
+    </Pressable>
+  );
+}
 
     const item = entry.customer;
     const inactive = isInactive(item);
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   sectionDividerText: {
     fontSize: 13,
     fontWeight: "700",
-    color: COLORS.textSecondary,
+     color: "#D32F2F",
   },
 
   // ── Text ──
