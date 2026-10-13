@@ -1,5 +1,5 @@
 // screens/pos/POSScreen.js
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useCallback } from "react";
 import {
   NativeModules,
   DeviceEventEmitter,
@@ -14,6 +14,7 @@ import {
   TextInput,
   Pressable,
   Alert,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -29,7 +30,6 @@ import Header from "../../components/Header";
 import OrderPane from "../../components/OrderPane";
 import CartPanel from "../../components/CartPanel";
 import HeldCartsSheet from "../../components/HeldCartsSheet";
-import MoreOptionsSheet from "../../components/MoreOptionsSheet";
 import { WALK_IN_CUSTOMER } from "../../components/CustomerSelector";
 import CustomerSearchScreen from "../Customer/CustomerSearchScreen";
 import CustomerFormScreen from "../Customer/CustomerFormScreen";
@@ -37,12 +37,14 @@ import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
 import { createCustomerReturn } from "../../api/customerReturn";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useEffect } from "react";
 import { fetchProducts } from "../../api/product";
 import {
   fetchCustomers,
   createCustomer,
+    updateCustomer,
   fetchCustomerInvoices,
   fetchCustomerPayments,
 } from "../../api/customer";
@@ -70,6 +72,7 @@ import { getCached, setCached, getCachedSync } from "../../utils/cache";
 const { SunmiScanner } = NativeModules;
 const scannerEmitter = DeviceEventEmitter;
 const APP = { name: "D'LumeBiz", registerType: "Default Register" };
+const HELD_CARTS_STORAGE_KEY = "pos:held-carts:v1";
 
 
 const CACHE_KEYS = {
@@ -96,6 +99,11 @@ const [customerPaymentResult, setCustomerPaymentResult] = useState(null);
   const [searchText, setSearchText] = useState("");
   const [cartItems, setCartItems] = useState([]);
   const [isReturnMode, setIsReturnMode] = useState(false);
+  
+const [transportModalVisible, setTransportModalVisible] = useState(false);
+const [transportationDetails, setTransportationDetails] = useState("");
+const [transportationInput, setTransportationInput] = useState("");
+
 const [returnCartItems, setReturnCartItems] = useState([]);
 const [returnSelectedCustomer, setReturnSelectedCustomer] =
   useState(WALK_IN_CUSTOMER);
@@ -103,6 +111,9 @@ const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
   const [managedItem, setManagedItem] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(WALK_IN_CUSTOMER);
 const [customerListSearch, setCustomerListSearch] = useState("");
+const [editingCustomer, setEditingCustomer] = useState(null); // null = add mode
+const [accountRefreshKey, setAccountRefreshKey] = useState(0);
+const [transportationFocused, setTransportationFocused] = useState(false);
 
 const handleAddCalculatorItem = (item) => {
   if (isReturnMode) {
@@ -130,6 +141,13 @@ const handleAddCalculatorItem = (item) => {
   const [customers, setCustomers] = useState(
     () => getCachedSync(CACHE_KEYS.customers)?.data || []
   );
+
+    const activeCustomers = useMemo(
+    () => customers.filter((c) => c.is_active !== false),
+    [customers]
+  );
+
+
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
@@ -165,15 +183,18 @@ const filteredCustomerResults = useMemo(() => {
 
       return name.includes(q) || phone.includes(q);
     })
-  .map((c) => ({
+
+.map((c) => ({
   id: c._id || c.id,
   name:
     c.customer_name ||
     `${c.first_name || ""} ${c.last_name || ""}`.trim(),
   phone: c.contact_no_1 || "",
   company_name: c.company_name || "",
+  is_active: c.is_active,
   _raw: c,
 }));
+
 }, [customers, customerSearchText]);
 
 const handleOpenCustomerSearch = () => {
@@ -198,6 +219,7 @@ const handleSelectCustomerFromSearch = (customer) => {
 
 
 const handleOpenCustomerForm = (fromList = false) => {
+  setEditingCustomer(null);
   setCustomerFormValues({});
   setCustomerFormFromList(fromList);
   setCustomerModalMode("form");
@@ -208,61 +230,140 @@ const handleCloseCustomerForm = () => {
   if (customerFormFromList) {
     setCustomerModalVisible(false);
     setCustomerFormFromList(false);
+    setEditingCustomer(null);
     return;
   }
 
   setCustomerModalMode("search");
 };
+
+const toFormValues = (c) => ({
+  name:
+    c.customer_name ||
+    `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+  company_name: c.company_name || "",
+  mobile: c.contact_no_1 || "",
+  email: c.email || "",
+  opening_balance: String(c.opening_balance ?? ""),
+  address1: c.address_line_1 || "",
+  address2: c.address_line_2 || "",
+  city: c.city || "",
+  state: c.state || "",
+  pincode: c.pincode || "",
+});
+
+const buildCustomerPayload = (v) => {
+  const fullName = (v.name || "").trim();
+  const parts = fullName.split(/\s+/);
+  return {
+    first_name: parts[0] || "",
+    last_name: parts.slice(1).join(" "),
+    company_name: v.company_name || "",
+    contact_no_1: v.mobile || "",
+    email: v.email || "",
+    address_line_1: v.address1 || "",
+    address_line_2: v.address2 || "",
+    city: v.city || "",
+    state: v.state || "",
+    pincode: v.pincode || "",
+    opening_balance: Number(v.opening_balance || 0),
+  };
+};
+
+const handleOpenEditCustomer = (customer) => {
+  setEditingCustomer(customer);
+  setCustomerFormValues(toFormValues(customer));
+  setCustomerFormFromList(true); // back closes the modal
+  setCustomerModalMode("form");
+  setCustomerModalVisible(true);
+};
+
+
 const handleChangeCustomerForm = (field, text) =>
   setCustomerFormValues((prev) => ({ ...prev, [field]: text }));
 
 const handleSaveCustomerForm = async () => {
   try {
     setSavingCustomer(true);
-   const fullName = (customerFormValues.name || "").trim();
+    const payload = buildCustomerPayload(customerFormValues);
 
-const nameParts = fullName.split(/\s+/);
+    // ── EDIT ──
+    if (editingCustomer) {
+      const id = editingCustomer._id || editingCustomer.id;
+      const { opening_balance, ...updatePayload } = payload; // opening balance is not editable
 
-const first_name = nameParts[0] || "";
-const last_name = nameParts.slice(1).join(" ");
+      const res = await updateCustomer(id, updatePayload);
+      const updated = res?.data?.data || res?.data || {};
 
-const payload = {
-  first_name,
-  last_name,
-  company_name: customerFormValues.company_name || "",
-  contact_no_1: customerFormValues.mobile || "",
-  email: customerFormValues.email || "",
-  address_line_1: customerFormValues.address1 || "",
-  address_line_2: customerFormValues.address2 || "",
-  state: customerFormValues.state || "",
-  opening_balance: Number(customerFormValues.opening_balance || 0),
-};
-const created = await createCustomer(payload);
+      setSelectedCustomerAccount((prev) => ({
+        ...(prev || editingCustomer),
+        ...updatePayload,
+        customer_name: (customerFormValues.name || "").trim(),
+        ...updated,
+      }));
+      setAccountRefreshKey((k) => k + 1);
+      await loadCustomers({ silent: true });
 
-console.log("========== NEW CUSTOMER CREATED ==========");
-console.log("CREATED CUSTOMER:", created);
-console.log("==========================================");
+      setEditingCustomer(null);
+      setCustomerModalVisible(false);
+      return;
+    }
 
-const newCustomer =
-  created?.data?.data ||
-  created?.data ||
-  created;
+    // ── ADD ──
+    const created = await createCustomer(payload);
 
-console.log("CUSTOMER USED FOR CART:", newCustomer);
+    const newCustomer =
+      created?.data?.data ||
+      created?.data ||
+      created;
 
-
-if (isReturnMode) {
-  setReturnSelectedCustomer(newCustomer);
-} else {
-  setSelectedCustomer(newCustomer);
-}
+    if (isReturnMode) {
+      setReturnSelectedCustomer(newCustomer);
+    } else {
+      setSelectedCustomer(newCustomer);
+    }
 
     await loadCustomers({ silent: true });
-    setCustomerModalVisible(false); // done, close the whole flow
+    setCustomerModalVisible(false);
   } catch (err) {
     console.log("CUSTOMER SAVE ERROR:", err.response?.data || err.message);
+    Alert.alert(
+      "Save Failed",
+      err?.response?.data?.message || "Unable to save customer."
+    );
   } finally {
     setSavingCustomer(false);
+  }
+};
+
+
+const handleToggleCustomerActive = async () => {
+  if (!editingCustomer) return;
+  const id = editingCustomer._id || editingCustomer.id;
+  const nextActive = editingCustomer.is_active === false; // inactive → active, else → inactive
+
+  try {
+    await updateCustomer(id, { is_active: nextActive });
+
+    setSelectedCustomerAccount((prev) =>
+      prev ? { ...prev, is_active: nextActive } : prev
+    );
+    setAccountRefreshKey((k) => k + 1);
+
+    if (!nextActive) {
+      const sameId = (c) => c && (c._id || c.id) === id;
+      if (sameId(selectedCustomer)) setSelectedCustomer(WALK_IN_CUSTOMER);
+      if (sameId(returnSelectedCustomer)) setReturnSelectedCustomer(WALK_IN_CUSTOMER);
+    }
+
+    await loadCustomers({ silent: true });
+    setEditingCustomer(null);
+    setCustomerModalVisible(false);
+  } catch (err) {
+    Alert.alert(
+      "Failed",
+      err?.response?.data?.message || "Unable to update customer status."
+    );
   }
 };
   // ─────────────────────────────────────────────────────────────────────────
@@ -301,11 +402,48 @@ if (isReturnMode) {
   };
 
   // ── Held Carts ────────────────────────────────────────────────────────────
-  const [heldCarts, setHeldCarts] = useState([]);
-  const [heldCartsSheetVisible, setHeldCartsSheetVisible] = useState(false);
+const [heldCarts, setHeldCarts] = useState([]);
+const [heldCartsLoaded, setHeldCartsLoaded] = useState(false);
+
+const [heldCartsSheetVisible, setHeldCartsSheetVisible] =
+  useState(false);
+
+useEffect(() => {
+  const loadHeldCarts = async () => {
+    try {
+      const saved = await AsyncStorage.getItem(
+        HELD_CARTS_STORAGE_KEY
+      );
+
+      if (saved) {
+        const parsed = JSON.parse(saved);
+
+        if (Array.isArray(parsed)) {
+          setHeldCarts(parsed);
+        }
+      }
+    } catch (error) {
+      console.log("LOAD HELD CARTS ERROR:", error);
+    } finally {
+      setHeldCartsLoaded(true);
+    }
+  };
+
+  loadHeldCarts();
+}, []);
+
+useEffect(() => {
+  if (!heldCartsLoaded) return;
+
+  AsyncStorage.setItem(
+    HELD_CARTS_STORAGE_KEY,
+    JSON.stringify(heldCarts)
+  ).catch((error) => {
+    console.log("SAVE HELD CARTS ERROR:", error);
+  });
+}, [heldCarts, heldCartsLoaded]);
 
   // ── More Options (Hold Cart) ─────────────────────────────────────────────
-  const [moreOptionsVisible, setMoreOptionsVisible] = useState(false);
 
   const handleHoldCart = () => {
     if (cartItems.length === 0) return;
@@ -325,6 +463,35 @@ if (isReturnMode) {
     setCartItems([]);
     setSelectedCustomer(WALK_IN_CUSTOMER);
   };
+
+  const requestHoldCart = () => {
+  if (isReturnMode) {
+    Alert.alert("Not available", "Carts can't be held while in Return mode.");
+    return;
+  }
+
+  if (cartItems.length === 0) {
+    Alert.alert("Cart is empty", "Add items to the cart before holding it.");
+    return;
+  }
+
+  const customerName =
+    selectedCustomer === WALK_IN_CUSTOMER
+      ? "Walk-in Customer"
+      : selectedCustomer?.customer_name ||
+        `${selectedCustomer?.first_name || ""} ${selectedCustomer?.last_name || ""}`.trim() ||
+        selectedCustomer?.company_name ||
+        "Customer";
+
+  Alert.alert(
+    "Hold this cart?",
+    `${cartItems.length} ${cartItems.length === 1 ? "item" : "items"} for ${customerName} will be put on hold and the cart will be cleared.`,
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Hold", onPress: handleHoldCart },
+    ]
+  );
+};
 
   const handleRestoreCart = (index) => {
     const held = heldCarts[index];
@@ -459,58 +626,37 @@ setCustomers(data);
 };
 
 
+
 const handleCustomerPay = async (customer) => {
+  const customerId = customer?._id || customer?.id;
+
+  if (!customerId) {
+    Alert.alert("Error", "Customer ID not found.");
+    return;
+  }
+
+  // Open the modal immediately — don't wait for the API.
+  setPaymentSaleId(null);
+  setPaymentCustomer(customer);
+  setPaymentFetching(true);
+
   try {
-    const customerId = customer?._id || customer?.id;
-
-    if (!customerId) {
-      Alert.alert("Error", "Customer ID not found.");
-      return;
-    }
-
-    setPaymentFetching(true);
-
-    console.log("========== CUSTOMER PAYMENT ==========");
-    console.log("CUSTOMER:", customer);
-    console.log("CUSTOMER ID:", customerId);
-
-    // Clear previous selected invoice
-    setPaymentSaleId(null);
-
     const response = await fetchCustomerInvoices(customerId);
 
-    console.log("📦 RAW CUSTOMER INVOICES RESPONSE:", response);
-
     const sales =
-      response?.data?.data ||
-      response?.data ||
+      response?.data?.data ??
+      response?.data ??
       [];
 
-    console.log("📄 CUSTOMER SALES:", sales);
-
-    // Find unpaid invoices only
-    const unpaidSales = sales
+    const unpaidSales = (Array.isArray(sales) ? sales : [])
       .map((sale) => {
         const total = Number(sale.total_amount || 0);
-
-        const paid = Number(
-          sale.paid_amount ||
-          0
-        );
+        const paid = Number(sale.paid_amount || 0);
 
         const remaining = Number(
           sale.remaining_amount ??
-          Math.max(0, total - paid)
+            Math.max(0, total - paid)
         );
-
-        console.log("INVOICE:", {
-          id: sale._id,
-          invoice_no: sale.invoice_no,
-          total,
-          paid,
-          remaining,
-          status: sale.status,
-        });
 
         return {
           ...sale,
@@ -518,73 +664,24 @@ const handleCustomerPay = async (customer) => {
         };
       })
       .filter(
-        (sale) =>
-          Number(sale.remaining_amount || 0) > 0
+        (sale) => Number(sale.remaining_amount || 0) > 0
       );
 
-    console.log("💰 UNPAID SALES:", unpaidSales);
-
-    // Newest unpaid invoice first
+    // Newest unpaid invoice first.
     unpaidSales.sort(
       (a, b) =>
-        new Date(
-          b.invoice_date ||
-          b.createdAt ||
-          0
-        ) -
-        new Date(
-          a.invoice_date ||
-          a.createdAt ||
-          0
-        )
+        new Date(b.invoice_date || b.createdAt || 0) -
+        new Date(a.invoice_date || a.createdAt || 0)
     );
 
-    // If there is an unpaid invoice,
-    // payment will start from that invoice.
-    if (unpaidSales.length > 0) {
-      const newestUnpaidSale = unpaidSales[0];
-
-      console.log(
-        "✅ PAYMENT WILL START FROM INVOICE:",
-        newestUnpaidSale.invoice_no,
-        newestUnpaidSale._id
-      );
-
-      setPaymentSaleId(newestUnpaidSale._id);
-    } else {
-      // No unpaid invoices.
-      // Payment will go against opening balance.
-      console.log(
-        "ℹ️ NO UNPAID INVOICE"
-      );
-
-      console.log(
-        "💰 OPENING BALANCE:",
-        customer.opening_balance
-      );
-
-      console.log(
-        "💰 OPENING BALANCE PAID:",
-        customer.opening_balance_paid
-      );
-
-      console.log(
-        "💰 REMAINING OPENING BALANCE:",
-        customer.remaining_opening_balance
-      );
-
-      setPaymentSaleId(null);
-    }
-
-    // Open payment modal
-    setPaymentCustomer(customer);
-
+    // Preserve existing invoice/opening-balance payment logic.
+    setPaymentSaleId(
+      unpaidSales.length > 0 ? unpaidSales[0]._id : null
+    );
   } catch (error) {
     console.log(
-      "❌ CUSTOMER PAYMENT LOAD ERROR:",
-      error?.response?.data ||
-      error?.message ||
-      error
+      "CUSTOMER PAYMENT LOAD ERROR:",
+      error?.response?.data || error?.message
     );
 
     Alert.alert(
@@ -595,11 +692,11 @@ const handleCustomerPay = async (customer) => {
 
     setPaymentCustomer(null);
     setPaymentSaleId(null);
-
   } finally {
     setPaymentFetching(false);
   }
 };
+
 
 
 const getInvoicePayableAmount = (invoice) => {
@@ -1373,9 +1470,13 @@ useEffect(() => {
   hideSearch={isCalculatorMode && activeNav !== "customers"}
   hideScanner={isCalculatorMode || activeNav === "customers"}
   hideCustomer={activeNav === "customers"}
-  hideMore={activeNav === "customers" || isCalculatorMode}
-  hideHeldCarts={isCalculatorMode}
-  hideViewHeldCarts={isCalculatorMode}
+
+hideHeldCarts={activeNav === "customers"}
+onHoldCartPress={requestHoldCart}
+onHeldCartsPress={() => setHeldCartsSheetVisible(true)}
+heldCartsCount={heldCarts.length}
+
+
   hideAdd={activeNav !== "customers"}
   addLabel={activeNav === "customers" ? "Add Customer" : undefined}
 onAddPress={
@@ -1412,7 +1513,6 @@ searchPlaceholder={
   (isReturnMode ? returnSelectedCustomer : selectedCustomer) !==
   WALK_IN_CUSTOMER
 }
-      onMorePress={() => setMoreOptionsVisible(true)}
       onScreenAction={() => {
         setEditingCategory(null);
         setCategoryModalVisible(true);
@@ -1423,28 +1523,8 @@ searchPlaceholder={
       itemCount={activeNav === "inventory" ? products.length : 0}
  
 
-rightExtra={
-  activeNav === "cart" &&
-  !isCalculatorMode &&
-  heldCarts.length > 0 ? (
-    <TouchableOpacity
-      style={styles.heldCartBtn}
-      onPress={() => setHeldCartsSheetVisible(true)}
-      hitSlop={8}
-    >
-      <MaterialCommunityIcons
-        name="cart-arrow-down"
-        size={24}
-        color={COLORS.blue}
-      />
-      <View style={styles.heldCountBadge}>
-        <Text style={styles.heldCountText}>
-          {heldCarts.length}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  ) : null
-}
+rightExtra={null}
+
 
 returnButton={activeNav === "cart" && isCalculatorMode}
 onReturnPress={() => {
@@ -1452,6 +1532,12 @@ onReturnPress={() => {
   setManagedItem(null);
 }}
 isReturnMode={isReturnMode}
+onTransportationPress={() => {
+  setTransportationInput(transportationDetails);
+  setTransportModalVisible(true);
+}}
+transportationDetails={transportationDetails}
+
 
 
     />
@@ -1484,7 +1570,7 @@ isReturnMode={isReturnMode}
                     onRemove={handleRemove}
                     onOpenManageItem={handleOpenManageItem}
                     onHoldCart={handleHoldCart}
-                    customers={customers}
+                   customers={activeCustomers}
                   selectedCustomer={
   (isReturnMode ? returnSelectedCustomer : selectedCustomer) ===
   WALK_IN_CUSTOMER
@@ -1502,7 +1588,8 @@ onSelectCustomer={(customer) => {
     setSelectedCustomer(nextCustomer);
   }
 }}
-                    grandTotal={grandTotal}
+                 grandTotal={grandTotal}
+transportationDetails={transportationDetails}
                   checkoutDisabled={activeCartItems.length === 0}
 checkoutLabel={isReturnMode ? "RETURN" : "Checkout"}
 isReturnMode={isReturnMode}
@@ -1655,28 +1742,31 @@ navigation.navigate("POSReturnSuccess", {
 
 
   // Existing Sale checkout — unchanged
-  const isCreditMode =
-    user?.company?.payment_mode === "CREDIT";
+ 
+const isCreditMode = user?.company?.payment_mode === "CREDIT";
 
-  if (isCreditMode && selectedCustomer !== WALK_IN_CUSTOMER) {
-    navigation.navigate("CreditSummary", {
-      cartItems,
-      customer: selectedCustomer,
-      subtotal,
-      tax,
-      discount,
-      grandTotal,
-    });
-  } else {
-    navigation.navigate("Checkout", {
-      cartItems,
-      customer: selectedCustomer,
-      subtotal,
-      tax,
-      discount,
-      grandTotal,
-    });
-  }
+if (isCreditMode && selectedCustomer !== WALK_IN_CUSTOMER) {
+  navigation.navigate("CreditSummary", {
+    cartItems,
+    customer: selectedCustomer,
+    subtotal,
+    tax,
+    discount,
+    grandTotal,
+    transportationDetails,
+  });
+} else {
+  navigation.navigate("Checkout", {
+    cartItems,
+    customer: selectedCustomer,
+    subtotal,
+    tax,
+    discount,
+    grandTotal,
+    transportationDetails,
+  });
+}
+
 }}
 
                   />
@@ -1724,21 +1814,21 @@ navigation.navigate("POSReturnSuccess", {
 {activeNav === "customers" && (
   <View style={styles.fullContent}>
     {selectedCustomerAccount ? (
-   <CustomerAccountScreen
-  customer={selectedCustomerAccount}
-  onBack={() => setSelectedCustomerAccount(null)}
-  onMenuPress={() => setSidebarCollapsed(false)}
-/>
+      <CustomerAccountScreen
+        key={`${selectedCustomerAccount._id || selectedCustomerAccount.id}-${accountRefreshKey}`}
+        customer={selectedCustomerAccount}
+        onBack={() => setSelectedCustomerAccount(null)}
+        onMenuPress={() => setSidebarCollapsed(false)}
+        onEditPress={handleOpenEditCustomer}
+      />
     ) : (
-<CustomerListScreen
-  customers={customers}
-  searchValue={customerListSearch}
-  onCustomerPress={(customer) => {
-    setSelectedCustomerAccount(customer);
-  }}
-  onPayPress={handleCustomerPay}
-  onPrintSummary={handlePrintCustomerSummary}
-/>
+      <CustomerListScreen
+        customers={customers}
+        searchValue={customerListSearch}
+        onCustomerPress={(customer) => setSelectedCustomerAccount(customer)}
+        onPayPress={handleCustomerPay}
+        onPrintSummary={handlePrintCustomerSummary}
+      />
     )}
   </View>
 )}
@@ -1772,19 +1862,15 @@ navigation.navigate("POSReturnSuccess", {
         </View>
       </View>
 
-      <HeldCartsSheet
-        visible={heldCartsSheetVisible}
-        heldCarts={heldCarts}
-        onRestore={handleRestoreCart}
-        onDelete={handleDeleteHeldCart}
-        onClose={() => setHeldCartsSheetVisible(false)}
-      />
+<HeldCartsSheet
+  visible={heldCartsSheetVisible}
+  heldCarts={heldCarts}
+  onRestore={handleRestoreCart}
+  onDelete={handleDeleteHeldCart}
+  onClose={() => setHeldCartsSheetVisible(false)}
+/>
 
-      <MoreOptionsSheet
-        visible={moreOptionsVisible}
-        onClose={() => setMoreOptionsVisible(false)}
-        onHoldCart={handleHoldCart}
-      />
+  
 
 <CategoryModal
   visible={categoryModalVisible}
@@ -1834,25 +1920,25 @@ onApply={(updates) => {
         }
       >
         {customerModalMode === "search" ? (
-          <CustomerSearchScreen
-            customers={filteredCustomerResults}
-            searchValue={customerSearchText}
-            onSearchChange={setCustomerSearchText}
-            onClose={handleCloseCustomerSearch}
-            onSelectCustomer={handleSelectCustomerFromSearch}
-           onAddNew={() => handleOpenCustomerForm(false)}
-          />
+        <CustomerSearchScreen
+  customers={filteredCustomerResults}
+  searchValue={customerSearchText}
+  onSearchChange={setCustomerSearchText}
+  onClose={handleCloseCustomerSearch}
+  onSelectCustomer={handleSelectCustomerFromSearch}
+  onAddNew={() => handleOpenCustomerForm(false)}
+/>
         ) : (
-          <CustomerFormScreen
-            values={customerFormValues}
-            onChange={handleChangeCustomerForm}
-            onBack={handleCloseCustomerForm}
-            onSave={handleSaveCustomerForm}
-            saving={savingCustomer}
-            onSelectState={() => {
-              // TODO: hook up a state picker; for now this is a no-op.
-            }}
-          />
+    <CustomerFormScreen
+  mode={editingCustomer ? "edit" : "add"}
+  isActive={editingCustomer?.is_active !== false}
+  onToggleActive={handleToggleCustomerActive}
+  values={customerFormValues}
+  onChange={handleChangeCustomerForm}
+  onBack={handleCloseCustomerForm}
+  onSave={handleSaveCustomerForm}
+  saving={savingCustomer}
+/>
         )}
       </Modal>
 
@@ -1865,6 +1951,192 @@ onApply={(updates) => {
     onClose={() => setProfileVisible(false)}
   />
 </Modal>
+
+
+
+<Modal
+  visible={transportModalVisible}
+  animationType="slide"
+  presentationStyle="fullScreen"
+  onRequestClose={() => {
+    setTransportationFocused(false);
+    setTransportModalVisible(false);
+  }}
+>
+  <SafeAreaView
+    style={{
+      flex: 1,
+      backgroundColor: COLORS.navyDeep,
+    }}
+    edges={["top", "bottom"]}
+  >
+    {/* Header — matches Customer Form */}
+    <View
+      style={{
+        height: 64,
+        backgroundColor: COLORS.navy,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: SPACING.lg,
+      }}
+    >
+      <Pressable
+        onPress={() => {
+          setTransportationFocused(false);
+          setTransportModalVisible(false);
+        }}
+        hitSlop={8}
+        style={{
+          width: 36,
+          height: 36,
+          alignItems: "center",
+          justifyContent: "center",
+          marginRight: SPACING.md,
+        }}
+      >
+        <MaterialCommunityIcons
+          name="arrow-left"
+          size={24}
+          color={COLORS.textOnDark}
+        />
+      </Pressable>
+
+      <MaterialCommunityIcons
+        name="truck-outline"
+        size={23}
+        color={COLORS.textOnDark}
+        style={{ marginRight: SPACING.sm }}
+      />
+
+      <Text
+        style={{
+          flex: 1,
+          color: COLORS.textOnDark,
+          fontSize: 19,
+          fontWeight: "700",
+        }}
+      >
+        Transportation Details
+      </Text>
+
+      <Pressable
+        onPress={() => {
+          setTransportationDetails(transportationInput.trim());
+          setTransportationFocused(false);
+          setTransportModalVisible(false);
+        }}
+        hitSlop={8}
+        style={{
+          paddingHorizontal: SPACING.sm,
+          paddingVertical: SPACING.xs,
+        }}
+      >
+        <Text
+          style={{
+            color: COLORS.textOnDark,
+            fontSize: 16,
+            fontWeight: "700",
+          }}
+        >
+          Save
+        </Text>
+      </Pressable>
+    </View>
+
+    {/* Form body */}
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.card,
+      }}
+    >
+    
+<ScrollView
+  keyboardShouldPersistTaps="always"
+  contentContainerStyle={{
+    flexGrow: 1,
+    paddingBottom: SPACING.xxl,
+  }}
+>
+  <View
+    style={{
+      width: "100%",
+      paddingHorizontal: SPACING.lg,
+      paddingTop: SPACING.xl,
+    }}
+  >
+
+      
+{/* Section — matches CustomerFormScreen */}
+<View
+  style={{
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
+  }}
+>
+  <Text
+    style={{
+      fontSize: 21,
+      fontWeight: "700",
+      color: COLORS.textPrimary,
+      marginBottom: SPACING.xl,
+    }}
+  >
+    Transportation Details
+  </Text>
+
+  <View style={{ marginBottom: SPACING.xl }}>
+   
+
+    <TextInput
+      value={transportationInput}
+      onChangeText={setTransportationInput}
+    
+      placeholderTextColor={COLORS.textMuted}
+      multiline
+      maxLength={200}
+      autoFocus={false}
+      returnKeyType="default"
+      blurOnSubmit={false}
+      onFocus={() => setTransportationFocused(true)}
+      onBlur={() => setTransportationFocused(false)}
+      style={{
+        fontSize: 19,
+        color: COLORS.textPrimary,
+        paddingVertical: SPACING.sm,
+        borderBottomWidth: 1.5,
+        borderBottomColor: transportationFocused
+          ? COLORS.blue
+          : COLORS.divider,
+        textAlignVertical: "top",
+        minHeight: 70,
+      }}
+    />
+
+    <Text
+      style={{
+        fontSize: 12,
+        color: COLORS.textMuted,
+        marginTop: SPACING.sm,
+        textAlign: "right",
+      }}
+    >
+      {transportationInput.length}/200 characters
+    </Text>
+  </View>
+</View>
+</View>
+</ScrollView>
+
+
+      
+    </View>
+  </SafeAreaView>
+</Modal>
+
+
+
 
 <CustomerPaymentModal
   visible={!!paymentCustomer}
@@ -1944,5 +2216,7 @@ contentWrapper: {
   returnBtnActive: { backgroundColor: "#DC2626", borderColor: "#DC2626" },
   returnBtnText: { fontSize: 14, fontWeight: "700", color: COLORS.blue },
   returnBtnTextActive: { color: "#FFFFFF" },
+
+ 
  
 });

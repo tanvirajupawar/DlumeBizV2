@@ -51,6 +51,7 @@ const {
   discountedGrandTotal = null,
   creditSummary = null,
   paymentAmount = null,
+  transportationDetails = "",
 } = route.params || {};
 
 const currentInvoiceAmount = Number(
@@ -147,6 +148,7 @@ let actualPaidAmount = 0;
       subtotal: Number(subtotal) || 0,
       discount_amount: discountValue,
       total_amount: currentInvoiceAmount,
+        transportation_details: transportationDetails,
 
       items: cartItems.map((item) => ({
         product_id: null,
@@ -257,14 +259,19 @@ customerNumber:
 
 
 
-  paymentMode:
-    paymentId === "cash"
-      ? "Cash"
-      : paymentId === "card"
-      ? "Card"
-      : "UPI",
+
+paymentMode:
+  paymentId === "cash"
+    ? "Cash"
+    : paymentId === "card"
+    ? "Card"
+    : "UPI",
+
+// ADD THIS
+transportationDetails: transportationDetails || "",
 
 subtotal,
+
 totalDiscount: discountValue,
 totalTax: tax,
 finalPaymentAmount: currentInvoiceAmount,

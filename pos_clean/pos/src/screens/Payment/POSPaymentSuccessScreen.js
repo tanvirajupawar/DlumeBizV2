@@ -98,6 +98,9 @@ const {
 
     setPrintState("printing");
     try {
+      console.log("INITIAL PRINT RECEIPT:", JSON.stringify(receipt, null, 2));
+console.log("TRANSPORTATION:", receipt?.transportationDetails);
+console.log("TRANSPORTATION SNAKE CASE:", receipt?.transportation_details);
       const outcome = await printReceipt(receipt);
       if (outcome?.success) {
         setPrintState("done");

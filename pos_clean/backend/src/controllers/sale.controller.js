@@ -11,13 +11,14 @@ export const createSale = async (req, res) => {
   try {
     const companyId = req.user.company_id;
 
-    const {
-      source,
-      sale_mode,
-      customer_id,
-      items,
-      discount_amount = 0,
-    } = req.body;
+const {
+  source,
+  sale_mode,
+  customer_id,
+  items,
+  discount_amount = 0,
+  transportation_details = "",
+} = req.body;
 
     // --------------------------------
     // 1. BASIC VALIDATION
@@ -273,9 +274,14 @@ const sale = await Sale.create({
 
   previous_outstanding: previousOutstanding,
 
+  // Transportation details
+  transportation_details:
+    typeof transportation_details === "string"
+      ? transportation_details.trim()
+      : "",
+
   created_by: req.user._id,
 });
-
 
     // --------------------------------
     // 10. CREATE SALE ITEMS
@@ -329,6 +335,7 @@ data: {
   total_amount: sale.total_amount,
 
   previous_outstanding: sale.previous_outstanding,
+  transportation_details: sale.transportation_details,
 },
 
     });

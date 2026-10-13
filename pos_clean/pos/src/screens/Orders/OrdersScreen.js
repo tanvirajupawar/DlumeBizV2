@@ -215,6 +215,8 @@ const mapInvoice = (inv, returnsBySalesId) => {
     };
   });
 
+  
+
   const subTotal = items.reduce((s, it) => s + it.amount, 0);
   const grandTotal = totalAmount > 0 ? totalAmount : subTotal;
 const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
@@ -247,13 +249,19 @@ total: grandTotal,
     paymentStatus: status === "Paid" ? "Paid" : "Unpaid",
     paymentMode: inv.payment_method || inv.paymentMode || "",
     fulfillmentStatus: "Fulfilled",
-    date: invoiceDate,
-    dateGroup: dateGroupFor(invoiceDate),
-    items,
-    subTotal,
-    discount,
-    tax,
-    grandTotal,
+date: invoiceDate,
+dateGroup: dateGroupFor(invoiceDate),
+
+transportationDetails:
+  inv.transportation_details ||
+  inv.transportationDetails ||
+  "",
+
+items,
+subTotal,
+discount,
+tax,
+grandTotal,
     previousOutstanding,
     paidAmount,
     pendingAmount,
@@ -394,6 +402,14 @@ customerNumber:
     .filter(Boolean)
     .join(", "),
 
+    companyName:
+  company?.name ||
+  company?.company_name ||
+  company?.business_name ||
+  "",
+
+transportationDetails: order.transportationDetails || "",
+
   companyPhone: company?.mobile || "",
   companyEmail: company?.email || user?.email || "",
 
@@ -463,21 +479,20 @@ const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress
       onPress={onPress}
     >
       <View style={styles.listRowTopLine}>
-        <Text style={styles.listRowId} numberOfLines={1}>
-        {order.type === "return" ? order.invoiceNo : order.invoiceNo}
-        </Text>
+       <Text style={styles.listRowId} numberOfLines={1}>
+  {order.customer || order.companyName || "Walk-in"}
+</Text>
         <Text style={styles.listRowAmount}>
           {"\u20B9"}
           {money(order.total)}
         </Text>
       </View>
       <View style={styles.listRowBottomLine}>
-        <Text style={styles.listRowCustomer} numberOfLines={1}>
-          {order.customer}
-          {order.companyName && order.companyName !== "Walk-in"
-            ? ` · ${order.companyName}`
-            : ""}
-        </Text>
+       <Text style={styles.listRowCustomer} numberOfLines={1}>
+  {order.type === "return"
+    ? `Return No: ${order.returnNo || order.invoiceNo}`
+    : `Invoice No: ${order.invoiceNo}`}
+</Text>
       </View>
       <View
         style={[
@@ -556,6 +571,18 @@ function MoreMenuModal({
 // ─── Item table (mirrors web InvoiceDetailPanel) ──────────────────────────
 
 function ItemTable({ items }) {
+  const totalQty = (items || []).reduce(
+    (total, item) => total + Number(item.qty || 0),
+    0
+  );
+
+  
+  const totalAmt = (items || []).reduce(
+    (total, item) => total + Number(item.amount || 0),
+    0
+  );
+
+
   return (
     <View>
       {/* Header */}
@@ -630,6 +657,33 @@ function ItemTable({ items }) {
           </View>
         ))
       )}
+         
+<View style={styles.itTotalQtyRow}>
+  <View style={styles.itColItem}>
+    <Text style={styles.itTotalQtyLabel}>Total</Text>
+  </View>
+
+  <View style={styles.itColDesc} />
+  <View style={styles.itColSize} />
+
+  <Text
+    style={[
+      styles.itCell,
+      styles.itColNum,
+      styles.itCenter,
+      styles.itTotalQtyValue,
+    ]}
+  >
+    {totalQty}
+  </Text>
+
+  <View style={styles.itColPrice} />
+
+  <Text style={[styles.itColTotal, styles.itRight, styles.itTotalQtyValue]}>
+    ₹{money(totalAmt)}
+  </Text>
+</View>
+
     </View>
   );
 }
@@ -1270,12 +1324,40 @@ const handlePrint = async () => {
           <>
             {/* Header */}
             <View style={styles.detailHeaderRow}>
-              <View style={{ flex: 1, paddingRight: spacing.md }}>
-                <Text style={styles.detailOrderId}>{order.invoiceNo}</Text>
-                <Text style={styles.detailCustomer}>{order.customer}</Text>
-                {order.companyName && order.companyName !== "Walk-in" && (
-                  <Text style={styles.detailCompany}>{order.companyName}</Text>
-                )}
+            
+<View style={{ flex: 1, paddingRight: spacing.md }}>
+  <Text style={styles.detailCustomerName} numberOfLines={2}>
+    {order.customer}
+  </Text>
+  <Text style={styles.detailOrderId}>{order.invoiceNo}</Text>
+
+
+{order.companyName && order.companyName !== "Walk-in" && (
+  <Text style={styles.detailCompany}>{order.companyName}</Text>
+)}
+
+
+{order.transportationDetails ? (
+  <View style={styles.transportationCard}>
+    <View style={styles.transportationIconWrap}>
+      <MaterialCommunityIcons
+        name="truck-delivery-outline"
+        size={22}
+        color={colors.primary}
+      />
+    </View>
+
+    <View style={styles.transportationTextWrap}>
+      <Text style={styles.transportationLabel}>
+        TRANSPORTATION DETAILS
+      </Text>
+      <Text style={styles.transportationValue}>
+        {order.transportationDetails}
+      </Text>
+    </View>
+  </View>
+) : null}
+
               </View>
               <View style={styles.detailHeaderRight}>
                 <Text style={styles.detailAmount}>
@@ -1285,21 +1367,7 @@ const handlePrint = async () => {
               </View>
             </View>
 
-            {/* Pending Amount callout. Return Amount is intentionally not
-                shown here anymore — it already has its own dedicated
-                "Refunds" tab above, so surfacing it a second time here was
-                redundant. */}
-          {!isReturnOrder && order.pendingAmount > 0 && (
-              <View style={styles.calloutRow}>
-                <View style={[styles.calloutBox, styles.calloutBoxDanger]}>
-                  <Text style={styles.calloutLabel}>Pending Amount</Text>
-                  <Text style={[styles.calloutValue, { color: "#DC2626" }]}>
-                    {"\u20B9"}{money(order.pendingAmount)}
-                  </Text>
-                </View>
-              </View>
-            )}
-
+         
             {/* ── Item Summary (new table) ── */}
             <Text style={styles.sectionHeading}>Item Summary</Text>
             <View style={styles.itemTableCard}>
@@ -1309,12 +1377,7 @@ const handlePrint = async () => {
             {/* Sales Summary */}
             <Text style={styles.sectionHeading}>Sales Summary</Text>
             <View style={styles.card}>
-              <View style={styles.salesSummaryRow}>
-                <Text style={styles.salesSummaryLabel}>Sub Total</Text>
-                <Text style={styles.salesSummaryValue}>
-                  {"\u20B9"}{money(order.subTotal)}
-                </Text>
-              </View>
+            
               {order.discount > 0 && (
                 <View style={styles.salesSummaryRow}>
                   <Text style={styles.salesSummaryLabel}>Discount</Text>
@@ -2534,7 +2597,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   detailHeaderRight: { alignItems: "flex-end" },
-  detailOrderId: { fontSize: 24, fontWeight: "800", color: colors.textPrimary },
+detailOrderId: {
+  fontSize: 16,
+  fontWeight: "400",
+  color: colors.textSecondary,
+},
+  
+detailCustomerName: {
+  fontSize: 28,
+  fontWeight: "500",
+  color: colors.textPrimary,
+  marginBottom: 4,
+},
+
   detailCustomer: { fontSize: 16, color: colors.textSecondary, marginTop: 5 },
   detailCompany: { fontSize: 14.5, color: colors.textMuted, marginTop: 2 },
   detailAmount: { fontSize: 22, fontWeight: "800", color: colors.textPrimary },
@@ -2609,11 +2684,12 @@ const styles = StyleSheet.create({
   itItemType: { fontSize: 16, color: colors.textMuted, marginTop: 2 },
   // Item Summary "Total" column amount — bumped up from the shared itCell
   // size (15) so the per-item total reads clearly at a glance.
-  itAmountText: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: colors.textPrimary,
-  },
+
+itAmountText: {
+  fontSize: 14,
+  fontWeight: "400",
+  color: colors.textPrimary,
+},
 
   // flex column ratios — sum = ~10 units wide
   itColItem:  { flex: 2.5 },          // Item name + type
@@ -2622,6 +2698,28 @@ const styles = StyleSheet.create({
   itColNum:   { flex: 0.6 },          // Bags / Units / Qty
   itColPrice: { flex: 1.1, textAlign: "right" },  // Unit Price
   itColTotal: { flex: 1.1, textAlign: "right" },  // Total
+
+    itTotalQtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "#F0F4F8",
+    borderTopWidth: 1.5,
+    borderTopColor: colors.divider,
+  },
+
+  itTotalQtyLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.textPrimary,
+  },
+
+  itTotalQtyValue: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.primary,
+  },
 
   // grand total strip
   itGrandTotal: {
@@ -3232,4 +3330,47 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 12,
   },
+  
+transportationCard: {
+  flexDirection: "row",
+  alignItems: "center",
+  alignSelf: "flex-start",
+  marginTop: 12,
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  backgroundColor: "#F8FAFC",
+  borderWidth: 1,
+  borderColor: "#E2E8F0",
+  borderRadius: 10,
+  gap: 10,
+  maxWidth: "100%",
+},
+
+transportationIconWrap: {
+  width: 38,
+  height: 38,
+  borderRadius: 9,
+  backgroundColor: "#EEF2FF",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+transportationTextWrap: {
+  flexShrink: 1,
+},
+
+transportationLabel: {
+  fontSize: 10,
+  fontWeight: "700",
+  letterSpacing: 0.7,
+  color: colors.textMuted,
+  marginBottom: 4,
+},
+
+transportationValue: {
+  fontSize: 15,
+  fontWeight: "600",
+  color: colors.textPrimary,
+},
+
 });

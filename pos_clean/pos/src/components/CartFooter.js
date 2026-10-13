@@ -1,7 +1,7 @@
 // src/components/CartFooter.js
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet, Alert } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADIUS, SHADOW } from "./Colors";
 import Loader from "./Loader";
 
@@ -26,8 +26,9 @@ const formatPrice = (n) =>
 export default function CartFooter({
   itemCount = 0,
   totalQty = 0,
-  subtotal = 0,
-  total = 0,
+subtotal = 0,
+total = 0,
+transportationDetails = "",
   isEmpty = true,
   onClear,
   onHold,
@@ -82,15 +83,25 @@ const [expanded, setExpanded] = useState(false);
         />
       </Pressable>
 
-      {expanded && (
-        <View style={styles.summary}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Sub Total</Text>
-            <Text style={styles.summaryValue}>{formatPrice(subtotal)}</Text>
-          </View>
-      
-        </View>
-      )}
+  
+{expanded && (
+  <View style={styles.summary}>
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>Sub Total</Text>
+      <Text style={styles.summaryValue}>{formatPrice(subtotal)}</Text>
+    </View>
+
+    {!!transportationDetails.trim() && (
+      <View style={styles.summaryRow}>
+        <Text style={styles.summaryLabel}>Transportation Details</Text>
+        <Text style={styles.transportationValue}>
+          {transportationDetails}
+        </Text>
+      </View>
+    )}
+  </View>
+)}
+
 
       <View style={styles.actions}>
       <Pressable
@@ -115,27 +126,29 @@ const [expanded, setExpanded] = useState(false);
   ]}
   testID="cart-checkout-button"
 >
-  {checkoutLoading ? (
-    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-      <Loader size="small" color="#FFFFFF" />
-      <Text style={[styles.checkoutText, { marginLeft: 8 }]}>
-        Processing Return...
-      </Text>
-    </View>
-  ) : (
-    <>
-      <Text style={styles.checkoutText}>
-        {isReturnMode
-          ? checkoutLabel
-          : isEmpty
-          ? "Save Order"
-          : checkoutLabel}
-      </Text>
-      <Text style={styles.checkoutAmount}>
-        {formatPrice(total)}
-      </Text>
-    </>
-  )}
+ 
+{checkoutLoading ? (
+  <View style={styles.checkoutLoading}>
+    <Loader size="small" color="#FFFFFF" />
+    <Text style={styles.checkoutLoadingText}>
+      {isReturnMode ? "Processing Return..." : "Processing..."}
+    </Text>
+  </View>
+) : (
+  <>
+    <Text style={styles.checkoutText}>
+      {isReturnMode
+        ? checkoutLabel
+        : isEmpty
+        ? "Save Order"
+        : checkoutLabel}
+    </Text>
+    <Text style={styles.checkoutAmount}>
+      {formatPrice(total)}
+    </Text>
+  </>
+)}
+
 </Pressable>
 
       </View>
@@ -225,4 +238,12 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "800",
   },
+  transportationValue: {
+  flex: 1,
+  marginLeft: SPACING.md,
+  fontSize: 14,
+  fontWeight: "600",
+  color: COLORS.textPrimary,
+  textAlign: "right",
+},
 });

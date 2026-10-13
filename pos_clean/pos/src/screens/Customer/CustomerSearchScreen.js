@@ -1,6 +1,6 @@
 // src/components/CustomerSearchScreen.js
 
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -43,6 +43,15 @@ export default function CustomerSearchScreen({
   onSelectCustomer,
   onAddNew,
 }) {
+  const searchInputRef = useRef(null);
+
+useEffect(() => {
+  const timer = setTimeout(() => {
+    searchInputRef.current?.focus();
+  }, 300);
+
+  return () => clearTimeout(timer);
+}, []);
   return (
     <SafeAreaView
       style={styles.safe}
@@ -89,19 +98,21 @@ export default function CustomerSearchScreen({
             style={styles.searchIcon}
           />
 
-          <TextInput
-            value={searchValue}
-            onChangeText={onSearchChange}
-            placeholder="Search customers"
-            placeholderTextColor={COLORS.textMuted}
-            style={styles.searchInput}
-            testID="customer-search-input"
-          />
+         <TextInput
+  ref={searchInputRef}
+  autoFocus
+  value={searchValue}
+  onChangeText={onSearchChange}
+  placeholder="Search customers"
+  placeholderTextColor={COLORS.textMuted}
+  style={styles.searchInput}
+  testID="customer-search-input"
+/>
         </View>
 
         {/* Customer list */}
-             <FlatList
-          data={customers}
+            <FlatList
+  data={customers.filter((customer) => customer.is_active !== false)}
           keyExtractor={(item) => String(item.id || item._id)}
           ItemSeparatorComponent={() => (
             <View style={styles.separator} />

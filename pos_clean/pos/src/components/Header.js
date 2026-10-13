@@ -1,5 +1,5 @@
 // src/components/Header.js
-  import React, { useState } from "react";
+ import React, { useState, useEffect } from "react";
   import {
     View,
     Text,
@@ -41,14 +41,19 @@ export default function Header({
   customerSelected = false,
   onMorePress,
   onHeldCartsPress,
+  onHoldCartPress,
    onAddPress,
   heldCartsCount = 0,
   onViewHeldCartsPress,
   
-  rightExtra,
-  returnButton,
-  onReturnPress,
-  isReturnMode = false,
+
+rightExtra,
+returnButton,
+onReturnPress,
+isReturnMode = false,
+onTransportationPress,
+transportationDetails = "",
+
   searchInputRef,
   searchValue,
   onSearchChange,
@@ -56,11 +61,21 @@ export default function Header({
   children, // rendered immediately to the left of the title text
 }) {
 const [searchActive, setSearchActive] = useState(alwaysShowSearch);
-    const activateSearch = () => {
-      setSearchActive(true);
-      searchInputRef?.current?.focus();
-      onSearchPress?.();
-    };
+
+useEffect(() => {
+  if (!searchActive) return;
+
+  const frame = requestAnimationFrame(() => {
+    searchInputRef?.current?.focus();
+  });
+
+  return () => cancelAnimationFrame(frame);
+}, [searchActive, searchInputRef]);
+
+const activateSearch = () => {
+  setSearchActive(true);
+  onSearchPress?.();
+};
 
 const closeSearch = () => {
   if (alwaysShowSearch) return;
@@ -202,6 +217,24 @@ const closeSearch = () => {
         {isReturnMode ? "Cancel Return" : "Return"}
       </Text>
     </Pressable>
+
+{onTransportationPress && (
+  <Pressable
+    style={styles.transportBtn}
+    onPress={onTransportationPress}
+    hitSlop={8}
+    testID="header-transportation-button"
+    accessibilityLabel="Transportation details"
+  >
+    <MaterialCommunityIcons
+      name="truck-outline"
+      size={23}
+      color={transportationDetails ? "#60D394" : COLORS.textOnDark}
+    />
+  </Pressable>
+)}
+
+
   </View>
 )}
         </View>
@@ -220,36 +253,33 @@ const closeSearch = () => {
   <View style={styles.rightTools}>
     {rightExtra}
 
-    {!hideHeldCarts && heldCartsCount > 0 && (
-      <Pressable
-        onPress={onHeldCartsPress}
-        style={styles.iconBtn}
-        hitSlop={8}
-      >
-        <MaterialCommunityIcons
-          name="cart-arrow-down"
-          size={24}
-          color={COLORS.textOnDark}
-        />
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{heldCartsCount}</Text>
-        </View>
-      </Pressable>
-    )}
+    
 
-    {!hideViewHeldCarts && heldCartsCount > 0 && (
-      <Pressable
-        onPress={onViewHeldCartsPress}
-        style={styles.iconBtn}
-        hitSlop={8}
-      >
-        <MaterialCommunityIcons
-          name="format-list-bulleted"
-          size={24}
-          color={COLORS.textOnDark}
-        />
-      </Pressable>
+{!hideHeldCarts && (
+  <Pressable
+    onPress={onHoldCartPress}          // tap = hold current cart
+    onLongPress={onHeldCartsPress}     // long press = open held carts list
+    delayLongPress={350}
+    style={styles.iconBtn}
+    hitSlop={8}
+    testID="header-hold-cart-button"
+    accessibilityLabel="Hold cart. Long press to view held carts"
+  >
+    <MaterialCommunityIcons
+      name="cart-arrow-down"
+      size={26}
+      color={COLORS.textOnDark}
+    />
+    {heldCartsCount > 0 && (
+      <View style={styles.badge}>
+        <Text style={styles.badgeText}>{heldCartsCount}</Text>
+      </View>
     )}
+  </Pressable>
+)}
+
+
+
 
     {!hideCustomer && (
       <Pressable
@@ -270,19 +300,7 @@ const closeSearch = () => {
       </Pressable>
     )}
 
-    {!hideMore && (
-      <Pressable
-        onPress={onMorePress}
-        style={styles.iconBtn}
-        hitSlop={8}
-      >
-        <Feather
-          name="more-vertical"
-          size={26}
-          color={COLORS.textOnDark}
-        />
-      </Pressable>
-    )}
+ 
 
     {!hideAdd && onAddPress && (
    
@@ -465,10 +483,21 @@ returnBtnText: {
 returnBtnTextActive: {
   color: "#FFFFFF",
 },
+
 returnButtonWrap: {
   marginLeft: "auto",
   flexShrink: 0,
-  alignItems: "flex-end",
+  flexDirection: "row",
+  alignItems: "center",
   justifyContent: "center",
+  gap: 8,
 },
+transportBtn: {
+  width: 40,
+  height: 40,
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: RADIUS.md,
+},
+
   });

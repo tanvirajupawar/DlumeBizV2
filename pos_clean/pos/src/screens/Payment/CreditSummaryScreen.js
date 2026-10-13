@@ -45,14 +45,17 @@ export default function CreditSummaryScreen() {
   const isSplit = width >= SPLIT_BREAKPOINT;
   const { user, company } = useAuth();
 
-  const {
-    cartItems = [],
-    customer = null,
-    subtotal = 0,
-    tax = 0,
-    discount = 0,
-    grandTotal = 0,
-  } = route.params || {};
+
+const {
+  cartItems = [],
+  customer = null,
+  subtotal = 0,
+  tax = 0,
+  discount = 0,
+  grandTotal = 0,
+  transportationDetails = "",
+} = route.params || {};
+
 
   const invoiceTotal = Number(grandTotal) || 0;
 
@@ -279,7 +282,15 @@ export default function CreditSummaryScreen() {
             `${customer?.first_name || ""} ${customer?.last_name || ""}`.trim() ||
             "Walk-in",
 
+            customerNumber:
+  customer?.contact_no_1 ||
+  customer?.mobile ||
+  customer?.phone ||
+  customer?.mobile_number ||
+  "",
+
           paymentMode: "Credit",
+          transportationDetails: transportationDetails || "",
 
           subtotal: Number(subtotal) || 0,
           totalDiscount: discountValue,
@@ -375,6 +386,7 @@ navigation.navigate("Checkout", {
   discountedGrandTotal,
   creditSummary: summary,
   paymentAmount: amount,
+  transportationDetails,
 });
   };
 

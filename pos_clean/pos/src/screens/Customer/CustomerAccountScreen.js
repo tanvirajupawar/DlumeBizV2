@@ -126,6 +126,7 @@ export default function CustomerAccountScreen({
   onBack,
   onMenuPress,
   onPrintSummary,
+  onEditPress,
 }) {
   const customerId = initialCustomer?._id || initialCustomer?.id;
 
@@ -444,6 +445,8 @@ else acc.received += r.amount;
       </View>
     );
   }
+
+const isInactive = customer.is_active === false;   // ← here
 
   const name =
     customer.customer_name ||
@@ -786,21 +789,37 @@ style={[
         hideMore
         hideHeldCarts
         hideViewHeldCarts
-        leftContent={
-          <View style={styles.hdrCustomer}>
-            <Text style={styles.hdrName} numberOfLines={1}>
-              {name}
-              {customer.company_name ? (
-                <Text style={styles.hdrCompany}>{`  \u2022  ${customer.company_name}`}</Text>
-              ) : null}
-            </Text>
-            {!!headerDetails && (
-              <Text style={styles.hdrDetails} numberOfLines={1}>
-                {headerDetails}
-              </Text>
-            )}
-          </View>
-        }
+     leftContent={
+  <View style={styles.hdrCustomerRow}>
+    <View style={styles.hdrCustomer}>
+      <Text style={styles.hdrName} numberOfLines={1}>
+        {name}
+        {customer.company_name ? (
+          <Text style={styles.hdrCompany}>{`  \u2022  ${customer.company_name}`}</Text>
+        ) : null}
+      </Text>
+      {!!headerDetails && (
+        <Text style={styles.hdrDetails} numberOfLines={1}>
+          {headerDetails}
+        </Text>
+      )}
+    </View>
+
+    {isInactive && (
+      <View style={styles.inactiveBadge}>
+        <Text style={styles.inactiveBadgeText}>INACTIVE</Text>
+      </View>
+    )}
+
+    <Pressable
+      onPress={() => onEditPress?.(customer)}
+      hitSlop={10}
+      style={({ pressed }) => [styles.editBtn, pressed && { opacity: 0.6 }]}
+    >
+      <MaterialCommunityIcons name="pencil-outline" size={18} color={COLORS.textOnDark} />
+    </Pressable>
+  </View>
+}
         // rightExtra={
         //   <Pressable
         //     style={styles.filterBtn}
@@ -1365,5 +1384,25 @@ receivedAmount: {
     fontSize: 15,
     color: COLORS.textMuted,
     textAlign: "center",
+  },
+    hdrCustomerRow: { flexDirection: "row", alignItems: "center", minWidth: 0, flexShrink: 1 },
+  inactiveBadge: {
+    marginLeft: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: "rgba(252,165,165,0.2)",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  inactiveBadgeText: { fontSize: 10.5, fontWeight: "800", color: "#FCA5A5", letterSpacing: 0.5 },
+  editBtn: {
+    marginLeft: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
 });

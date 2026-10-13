@@ -114,6 +114,7 @@ export default function CustomerPaymentModal({
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("CASH");
+  const [showMethodDropdown, setShowMethodDropdown] = useState(false);
   const [focused, setFocused] = useState(false);
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
@@ -128,6 +129,7 @@ export default function CustomerPaymentModal({
       setDate(new Date());
       setShowPicker(false);
       setRemarks("");
+      setShowMethodDropdown(false);
     }
   }, [visible, customer?._id, customer?.id]);
 
@@ -203,17 +205,13 @@ export default function CustomerPaymentModal({
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Receive Payment</Text>
-          {fetching ? (
-            <View style={{ width: 24 }} />
-          ) : (
-            <HeaderButton
-              title="Receive"
-              onPress={handleSubmit}
-              loading={loading}
-              testID="customer-payment-receive-button"
-            />
-          )}
-        </View>
+        <HeaderButton
+  title="Receive"
+  onPress={handleSubmit}
+  loading={loading}
+  testID="customer-payment-receive-button"
+/>
+                  </View>
 
         <View
           style={[
@@ -221,12 +219,7 @@ export default function CustomerPaymentModal({
             { paddingBottom: kbHeight > 0 ? kbHeight : insets.bottom },
           ]}
         >
-          {fetching ? (
-            <View style={styles.center}>
-              <ActivityIndicator size="large" color="#2563EB" />
-              <Text style={styles.loadingText}>Loading account balance...</Text>
-            </View>
-          ) : (
+        
             <>
               {/* Info bar: customer + outstanding, shown once */}
               <View style={styles.infoBar}>
@@ -317,67 +310,86 @@ export default function CustomerPaymentModal({
                       ) : null}
                     </View>
 
-                    <View style={styles.colDate}>
-                      <Text style={styles.fieldLabel}>Remarks</Text>
-                      <TextInput
-                        value={remarks}
-                        onChangeText={setRemarks}
-                        placeholder="Add a note (optional)"
-                        placeholderTextColor={COLORS.textMuted}
-                        editable={!loading && !fetching}
-                        multiline
-                        maxLength={250}
-                        onFocus={() => setRemarksFocused(true)}
-                        onBlur={() => setRemarksFocused(false)}
-                        style={[
-                          styles.remarksInput,
-                          remarksFocused && { borderColor: COLORS.blue },
-                        ]}
-                      />
-                    </View>
+                  
+<View style={styles.colDate}>
+  <Text style={styles.fieldLabel}>Remarks</Text>
+
+  <TextInput
+    value={remarks}
+    onChangeText={setRemarks}
+    placeholder="Add a note (optional)"
+    placeholderTextColor={COLORS.textMuted}
+    editable={!loading && !fetching}
+    multiline
+    maxLength={250}
+    onFocus={() => setRemarksFocused(true)}
+    onBlur={() => setRemarksFocused(false)}
+    style={[
+      styles.remarksInput,
+      remarksFocused && { borderColor: COLORS.blue },
+    ]}
+  />
+</View>
+
+<View style={styles.methodCol}>
+  <Text style={styles.fieldLabel}>Payment Method</Text>
+
+  <Pressable
+    disabled={loading || fetching}
+    onPress={() => setShowMethodDropdown((prev) => !prev)}
+    style={styles.methodDropdown}
+  >
+    <Text style={styles.methodDropdownText}>
+      {METHODS.find((m) => m.key === method)?.label || "Cash"}
+    </Text>
+    <Ionicons
+      name={showMethodDropdown ? "chevron-up" : "chevron-down"}
+      size={18}
+      color={COLORS.textSecondary}
+    />
+  </Pressable>
+
+  {showMethodDropdown && (
+    <View style={styles.methodDropdownMenu}>
+      {METHODS.map((m) => (
+        <Pressable
+          key={m.key}
+          disabled={loading || fetching}
+          onPress={() => {
+            setMethod(m.key);
+            setShowMethodDropdown(false);
+          }}
+          style={[
+            styles.methodDropdownOption,
+            method === m.key && styles.methodDropdownOptionActive,
+          ]}
+        >
+          <Text
+            style={[
+              styles.methodDropdownText,
+              method === m.key && styles.methodDropdownTextActive,
+            ]}
+          >
+            {m.label}
+          </Text>
+          {method === m.key && (
+            <Ionicons name="checkmark" size={17} color={COLORS.blue} />
+          )}
+        </Pressable>
+      ))}
+    </View>
+  )}
+</View>
+
                   </View>
 
-                  {/* Row 2: Method chips */}
-                  <Text style={[styles.fieldLabel, { marginTop: 16 }]}>
-                    Payment Method
-                  </Text>
-                  <View style={styles.methodRow}>
-                    {METHODS.map((m) => {
-                      const active = method === m.key;
-                      return (
-                        <Pressable
-                          key={m.key}
-                          disabled={loading}
-                          onPress={() => setMethod(m.key)}
-                          style={[
-                            styles.methodChip,
-                            active && styles.methodChipActive,
-                          ]}
-                        >
-                          <Ionicons
-                            name={m.icon}
-                            size={18}
-                            color={active ? "#FFFFFF" : COLORS.textSecondary}
-                            style={{ marginRight: 6 }}
-                          />
-                          <Text
-                            style={[
-                              styles.methodText,
-                              active && styles.methodTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {m.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+               
+                 
 
                 </View>
               </ScrollView>
             </>
-          )}
+          
         </View>
 
         {/* Date picker popup (same calendar as OrdersScreen) */}
@@ -541,20 +553,32 @@ const styles = StyleSheet.create({
   },
 
   // ── Form ──
-  formContent: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 12 },
+formContent: {
+  paddingHorizontal: 18,
+  paddingTop: 12,
+  paddingBottom: 8,
+},
   centerCol: { width: "100%", maxWidth: 820, alignSelf: "center" },
 
-  row: { flexDirection: "row", gap: 16 },
-  rowStack: { flexDirection: "column", gap: 14 },
+row: {
+  flexDirection: "row",
+  gap: 10,
+},
+
+rowStack: {
+  flexDirection: "column",
+  gap: 10,
+},
+
   colAmount: { flex: 1.2 },
   colDate: { flex: 1 },
 
-  fieldLabel: {
-    fontSize: 13,
-    color: "#64748B",
-    fontWeight: "700",
-    marginBottom: 6,
-  },
+fieldLabel: {
+  fontSize: 12,
+  color: "#64748B",
+  fontWeight: "700",
+  marginBottom: 4,
+},
   fieldLabelNoMargin: { fontSize: 13, color: "#64748B", fontWeight: "700" },
   labelRow: {
     flexDirection: "row",
@@ -677,4 +701,100 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   pickerTodayBtnText: { fontSize: 15, fontWeight: "700", color: "#2563EB" },
+  
+amountBox: {
+  flexDirection: "row",
+  alignItems: "center",
+  borderWidth: 1.5,
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  height: 44,
+  backgroundColor: "#FFFFFF",
+},
+
+rupeePrefix: {
+  fontSize: 19,
+  fontWeight: "700",
+  color: "#0F172A",
+  marginRight: 5,
+},
+
+amountInput: {
+  flex: 1,
+  fontSize: 20,
+  fontWeight: "800",
+  color: "#0F172A",
+  paddingVertical: 4,
+},
+
+remarksInput: {
+  height: 44,
+  borderWidth: 1,
+  borderColor: "#E2E8F0",
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  fontSize: 13,
+  color: "#0F172A",
+  textAlignVertical: "center",
+},
+
+methodCol: {
+  flex: 0.8,
+  position: "relative",
+  zIndex: 10,
+},
+
+methodDropdown: {
+  height: 44,
+  borderWidth: 1,
+  borderColor: "#E2E8F0",
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  backgroundColor: "#FFFFFF",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+},
+
+methodDropdownText: {
+  flex: 1,
+  fontSize: 13,
+  fontWeight: "600",
+  color: "#0F172A",
+},
+
+methodDropdownMenu: {
+  position: "absolute",
+  top: 70,
+  left: 0,
+  right: 0,
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#E2E8F0",
+  borderRadius: 8,
+  zIndex: 20,
+  elevation: 8,
+  overflow: "hidden",
+},
+
+methodDropdownOption: {
+  minHeight: 38,
+  paddingHorizontal: 10,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  borderBottomWidth: 1,
+  borderBottomColor: "#F1F5F9",
+},
+
+methodDropdownOptionActive: {
+  backgroundColor: "#EFF6FF",
+},
+
+methodDropdownTextActive: {
+  color: COLORS.blue,
+  fontWeight: "700",
+},
+
 });

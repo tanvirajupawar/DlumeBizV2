@@ -184,8 +184,9 @@ export default function CartPanel({
   customers = [],
   selectedCustomer = null,
   onSelectCustomer,
-  grandTotal = 0,
-  checkoutDisabled = false,
+grandTotal = 0,
+transportationDetails = "",
+checkoutDisabled = false,
   checkoutLabel = "Checkout",
    isReturnMode = false, 
    checkoutLoading = false,
@@ -258,13 +259,14 @@ const itemLabel = item.isCalculatorItem
         )}
       </View>
 
-      <CartFooter
-        itemCount={cartItems.length}
-        totalQty={totalQty}
-        subtotal={subtotal}
-        roundOff={roundOff}
-        total={grandTotal}
-        isEmpty={isEmpty}
+  <CartFooter
+  itemCount={cartItems.length}
+  totalQty={totalQty}
+  subtotal={subtotal}
+  roundOff={roundOff}
+  total={grandTotal}
+  transportationDetails={transportationDetails}
+  isEmpty={isEmpty}
         checkoutDisabled={checkoutDisabled}
         onClear={onClearCart}
         onHold={onHoldCart}
@@ -385,6 +387,7 @@ const styles = StyleSheet.create({
   marginTop: 4,
   lineHeight: 19,
 },
+
   returnBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -399,3 +402,7 @@ const styles = StyleSheet.create({
   },
   returnBannerText: { flex: 1, fontSize: 12, fontWeight: "800", color: "#B91C1C" },
 });
+
+
+
+

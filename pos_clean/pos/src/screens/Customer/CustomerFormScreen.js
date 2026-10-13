@@ -3,6 +3,7 @@ import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
+    Alert,
   Pressable,
   TextInput,
   ScrollView,
@@ -70,14 +71,8 @@ const STATES = [
  * label (+ red "*" if required) above, placeholder text below, thin
  * gray underline that turns blue while focused.
  */
-function FormField({
-  label,
-  required,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-}) {
+function FormField({ label, required, value, onChangeText, placeholder, keyboardType, editable = true }) {
+
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
@@ -93,11 +88,13 @@ function FormField({
         keyboardType={keyboardType}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={[
-          styles.input,
-          { borderBottomColor: focused ? COLORS.blue : COLORS.divider },
-        ]}
-      />
+       editable={editable}
+    style={[
+      styles.input,
+      { borderBottomColor: focused ? COLORS.blue : COLORS.divider },
+      !editable && { color: COLORS.textMuted },
+    ]}
+  />
     </View>
   );
 }
@@ -123,20 +120,23 @@ export default function CustomerFormScreen({
   onChange = () => {},
   onBack,
   onSave,
+  mode = "add",                 // "add" | "edit"
+  isActive = true,
+  onToggleActive,               // async () => void
 }) {
+const isEdit = mode === "edit";
+
 const {
   name = "",
   mobile = "",
   email = "",
   company_name = "",
-
   address1 = "",
   address2 = "",
   city = "",
   state = "",
   pincode = "",
   opening_balance = "",
-
 } = values;
 
  const [saving, setSaving] = useState(false);          
@@ -148,6 +148,34 @@ const {
     } finally {
       setSaving(false);
     }
+  };
+
+
+    const [toggling, setToggling] = useState(false);
+
+  const handleToggleActive = () => {
+    const goingInactive = isActive;
+    Alert.alert(
+      goingInactive ? "Mark as Inactive?" : "Reactivate Customer?",
+      goingInactive
+        ? "This customer will be hidden from the customer list and billing. Their ledger and balance are kept."
+        : "This customer will appear in the customer list and billing again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: goingInactive ? "Mark Inactive" : "Reactivate",
+          style: goingInactive ? "destructive" : "default",
+          onPress: async () => {
+            try {
+              setToggling(true);
+              await onToggleActive?.();
+            } finally {
+              setToggling(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const [stateModalVisible, setStateModalVisible] = useState(false);
@@ -184,7 +212,7 @@ const {
         >
           <Ionicons name="arrow-back" size={24} color={COLORS.textOnDark} />
         </Pressable>
-        <Text style={styles.headerTitle}>Add Customer</Text>
+        <Text style={styles.headerTitle}>{isEdit ? "Edit Customer" : "Add Customer"}</Text>
       <HeaderButton
   title="Save"
   onPress={handleSave}
@@ -236,12 +264,13 @@ const {
               placeholder="e.g. customername@domain.com"
               keyboardType="email-address"
             />
-            <FormField
+         <FormField
   label="Opening Balance"
-  value={opening_balance}
+  value={String(opening_balance ?? "")}
   onChangeText={(t) => onChange("opening_balance", t)}
   placeholder="e.g. 5000"
   keyboardType="numeric"
+  editable={!isEdit}
 />
 
           </View>
@@ -291,6 +320,41 @@ const {
 
           </View>
         </View>
+        {isEdit && (
+  <>
+    <View style={styles.sectionDivider} />
+    <View style={styles.section}>
+      <View style={styles.centerCol}>
+        <Text style={styles.sectionTitle}>Status</Text>
+
+        <Text style={styles.statusHint}>
+          {isActive
+            ? "Inactive customers are hidden from the list and billing. Their ledger is kept."
+            : "This customer is currently inactive."}
+        </Text>
+
+        <Pressable
+          onPress={handleToggleActive}
+          disabled={toggling}
+          style={({ pressed }) => [
+            styles.statusBtn,
+            isActive ? styles.statusBtnDanger : styles.statusBtnActivate,
+            (pressed || toggling) && { opacity: 0.7 },
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusBtnText,
+              { color: isActive ? COLORS.danger : COLORS.blue },
+            ]}
+          >
+            {toggling ? "Please wait..." : isActive ? "MARK AS INACTIVE" : "REACTIVATE CUSTOMER"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  </>
+)}
    </ScrollView>
 </KeyboardAvoidingView>
 </View>
@@ -548,4 +612,19 @@ header: {
     fontSize: 15,
     marginTop: SPACING.xl,
   },
+    statusHint: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.lg,
+  },
+  statusBtn: {
+    height: 48,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusBtnDanger: { borderColor: COLORS.danger, backgroundColor: COLORS.card },
+  statusBtnActivate: { borderColor: COLORS.blue, backgroundColor: COLORS.card },
+  statusBtnText: { fontSize: 15, fontWeight: "700", letterSpacing: 0.5 },
 });

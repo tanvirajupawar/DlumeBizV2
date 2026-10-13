@@ -96,6 +96,12 @@ previous_outstanding: {
       min: 0,
     },
 
+    transportation_details: {
+  type: String,
+  default: "",
+  trim: true,
+},
+
     // ============================================
     // CREATED BY
     // ============================================

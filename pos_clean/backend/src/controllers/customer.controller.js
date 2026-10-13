@@ -151,12 +151,13 @@ export const getCustomers = async (req, res) => {
   try {
     const companyId = req.user.company_id;
 
-    const customers = await Customer.find({
-      company_id: companyId,
-      is_active: true,
-    })
-      .sort({ createdAt: -1 })
-      .lean();
+
+const customers = await Customer.find({
+  company_id: companyId,
+})
+  .sort({ createdAt: -1 })
+  .lean();
+
 
     if (!customers.length) {
       return res.status(200).json({
@@ -559,6 +560,83 @@ const outstanding = Number(
     return res.status(500).json({
       success: false,
       message: "Failed to fetch customer",
+      error: error.message,
+    });
+  }
+};
+
+
+export const updateCustomer = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const customerId = req.params.id;
+
+    // Only allow updating a customer belonging to this company.
+    const customer = await Customer.findOne({
+      _id: customerId,
+      company_id: companyId,
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found",
+      });
+    }
+
+    // Handle active/inactive status separately.
+    if (Object.prototype.hasOwnProperty.call(req.body, "is_active")) {
+      if (typeof req.body.is_active !== "boolean") {
+        return res.status(400).json({
+          success: false,
+          message: "is_active must be true or false",
+        });
+      }
+
+      customer.is_active = req.body.is_active;
+    }
+
+    // Update only the permitted profile fields.
+    const allowedFields = [
+      "first_name",
+      "last_name",
+      "company_name",
+      "customer_type",
+      "business_type",
+      "gstin",
+      "pan_number",
+      "email",
+      "website",
+      "contact_no_1",
+      "contact_no_2",
+      "address_line_1",
+      "address_line_2",
+      "city",
+      "state",
+      "country",
+      "pincode",
+    ];
+
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        customer[field] = req.body[field];
+      }
+    }
+
+    // Do not modify opening_balance, invoices, ledger, or payments here.
+    await customer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Customer updated successfully",
+      data: customer,
+    });
+  } catch (error) {
+    console.error("Update customer error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update customer",
       error: error.message,
     });
   }

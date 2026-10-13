@@ -241,7 +241,6 @@ customerSchema.pre("findOneAndUpdate", function () {
 
   this.setUpdate(update);
 
-  next();
 });
 
 const Customer = mongoose.model("Customer", customerSchema);

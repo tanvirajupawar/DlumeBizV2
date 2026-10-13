@@ -23,12 +23,24 @@ const getPhone = (c) => c.contact_no_1 || "";
 
 const getCompany = (c) => c.company_name || c.company || "";
 
+const isInactive = (c) => c?.is_active === false;
+
 const money = (value) =>
   "₹" +
   Number(value || 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+// ── Muted "closed" palette for inactive customers ──────────────
+
+const MUTED = {
+  rowBg: "#F3F4F6",
+  text: "#9CA3AF",
+  pillBg: "#E5E7EB",
+  pillText: "#6B7280",
+  border: "#D1D5DB",
+};
 
 // ── Print summary ranges ───────────────────────────────────────
 
@@ -72,6 +84,7 @@ export default function CustomerListScreen({
     });
   };
 
+  // Search across ALL customers (active + inactive)
   const filteredCustomers = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return customers;
@@ -87,27 +100,88 @@ export default function CustomerListScreen({
     });
   }, [customers, search]);
 
-  const renderRow = ({ item, index }) => {
+  // Active first, then a divider, then inactive. Sr numbers run straight through.
+  const listData = useMemo(() => {
+    const active = filteredCustomers.filter((c) => !isInactive(c));
+    const inactive = filteredCustomers.filter(isInactive);
+
+    const rows = active.map((c, i) => ({
+      type: "customer",
+      customer: c,
+      sr: i + 1,
+    }));
+
+    if (inactive.length > 0) {
+      rows.push({ type: "divider", count: inactive.length });
+      inactive.forEach((c, i) => {
+        rows.push({
+          type: "customer",
+          customer: c,
+          sr: active.length + i + 1,
+        });
+      });
+    }
+
+    return rows;
+  }, [filteredCustomers]);
+
+  const renderRow = ({ item: entry }) => {
+    // ── Divider between active and inactive ──
+    if (entry.type === "divider") {
+      return (
+        <View style={styles.sectionDivider}>
+          <Text style={styles.sectionDividerText}>
+            Inactive customers ({entry.count})
+          </Text>
+        </View>
+      );
+    }
+
+    const item = entry.customer;
+    const inactive = isInactive(item);
     const outstanding = Number(item?.outstanding || 0);
 
     return (
       <Pressable
         onPress={() => onCustomerPress?.(item)}
-        style={({ pressed }) => [styles.tr, pressed && styles.trPressed]}
+        style={({ pressed }) => [
+          styles.tr,
+          inactive && styles.trInactive,
+          pressed && styles.trPressed,
+        ]}
       >
-        <Text style={[styles.td, styles.colSr]} numberOfLines={1}>
-          {index + 1}
+        <Text
+          style={[styles.td, styles.colSr, inactive && styles.mutedText]}
+          numberOfLines={1}
+        >
+          {entry.sr}
         </Text>
 
-        <Text style={[styles.tdName, styles.colName]} numberOfLines={1}>
-          {getName(item)}
-        </Text>
+        <View style={[styles.colName, styles.nameCell]}>
+          <Text
+            style={[styles.tdName, inactive && styles.mutedText, styles.nameText]}
+            numberOfLines={1}
+          >
+            {getName(item)}
+          </Text>
+          {inactive && (
+            <View style={styles.inactivePill}>
+              <Text style={styles.inactivePillText}>Inactive</Text>
+            </View>
+          )}
+        </View>
 
-        <Text style={[styles.td, styles.colPhone]} numberOfLines={1}>
+        <Text
+          style={[styles.td, styles.colPhone, inactive && styles.mutedText]}
+          numberOfLines={1}
+        >
           {getPhone(item) || "—"}
         </Text>
 
-        <Text style={[styles.td, styles.colCompany]} numberOfLines={1}>
+        <Text
+          style={[styles.td, styles.colCompany, inactive && styles.mutedText]}
+          numberOfLines={1}
+        >
           {getCompany(item) || "—"}
         </Text>
 
@@ -115,7 +189,9 @@ export default function CustomerListScreen({
           style={[
             styles.tdMoney,
             styles.colOutstanding,
-            outstanding > 0 && styles.tdDue,
+            inactive
+              ? styles.mutedText
+              : outstanding > 0 && styles.tdDue,
           ]}
           numberOfLines={1}
         >
@@ -130,23 +206,40 @@ export default function CustomerListScreen({
             }}
             style={({ pressed }) => [
               styles.printButton,
+              inactive && styles.printButtonInactive,
               pressed && styles.buttonPressed,
             ]}
           >
-            <Text style={styles.printButtonText}>PRINT</Text>
+            <Text
+              style={[
+                styles.printButtonText,
+                inactive && styles.buttonTextInactive,
+              ]}
+            >
+              PRINT
+            </Text>
           </Pressable>
 
           <Pressable
+            disabled={inactive}
             onPress={(event) => {
               event.stopPropagation?.();
               onPayPress?.(item);
             }}
             style={({ pressed }) => [
               styles.payButton,
-              pressed && styles.buttonPressed,
+              inactive && styles.payButtonInactive,
+              pressed && !inactive && styles.buttonPressed,
             ]}
           >
-            <Text style={styles.payButtonText}>PAY</Text>
+            <Text
+              style={[
+                styles.payButtonText,
+                inactive && styles.buttonTextInactive,
+              ]}
+            >
+              PAY
+            </Text>
           </Pressable>
         </View>
       </Pressable>
@@ -176,7 +269,7 @@ export default function CustomerListScreen({
           </View>
 
           {/* Customer Rows */}
-          {filteredCustomers.length === 0 ? (
+          {listData.length === 0 ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>
                 {search.trim()
@@ -186,9 +279,11 @@ export default function CustomerListScreen({
             </View>
           ) : (
             <FlatList
-              data={filteredCustomers}
-              keyExtractor={(item, index) =>
-                String(item._id || item.id || index)
+              data={listData}
+              keyExtractor={(entry, index) =>
+                entry.type === "divider"
+                  ? "inactive-divider"
+                  : String(entry.customer._id || entry.customer.id || index)
               }
               renderItem={renderRow}
               ItemSeparatorComponent={() => (
@@ -280,6 +375,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
 
+  trInactive: {
+    backgroundColor: MUTED.rowBg,
+  },
+
   thRow: {
     backgroundColor: COLORS.bg,
     paddingVertical: 10,
@@ -294,6 +393,22 @@ const styles = StyleSheet.create({
 
   trPressed: {
     opacity: 0.6,
+  },
+
+  // ── Section divider (Active → Inactive) ──
+  sectionDivider: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 10,
+    backgroundColor: COLORS.bg,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.divider,
+  },
+
+  sectionDividerText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.textSecondary,
   },
 
   // ── Text ──
@@ -324,6 +439,34 @@ const styles = StyleSheet.create({
 
   tdDue: {
     color: COLORS.danger,
+  },
+
+  mutedText: {
+    color: MUTED.text,
+  },
+
+  // ── Name cell with inactive pill ──
+  nameCell: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  nameText: {
+    flexShrink: 1,
+  },
+
+  inactivePill: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: MUTED.pillBg,
+  },
+
+  inactivePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: MUTED.pillText,
   },
 
   // ── Columns (same styles used by header + rows, so they always align) ──
@@ -389,6 +532,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  payButtonInactive: {
+    backgroundColor: MUTED.pillBg,
+    borderColor: MUTED.border,
+  },
+
   payButtonText: {
     fontSize: 14,
     fontWeight: "700",
@@ -407,11 +555,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  printButtonInactive: {
+    borderColor: MUTED.border,
+    backgroundColor: MUTED.rowBg,
+  },
+
   printButtonText: {
     fontSize: 14,
     fontWeight: "700",
     letterSpacing: 0.4,
     color: COLORS.blue,
+  },
+
+  buttonTextInactive: {
+    color: MUTED.text,
   },
 
   buttonPressed: {

@@ -10,6 +10,11 @@ export const createCustomer = async (payload) => {
   return response.data;
 };
 
+export const updateCustomer = async (customerId, payload) => {
+  const response = await api.put(`/customers/${customerId}`, payload);
+  return response.data;
+};
+
 export const fetchCustomer = async (customerId) => {
   const response = await api.get("/customers");
 
