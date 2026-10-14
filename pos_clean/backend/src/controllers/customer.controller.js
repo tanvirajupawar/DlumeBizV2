@@ -584,6 +584,23 @@ export const updateCustomer = async (req, res) => {
       });
     }
 
+    
+if (
+  Object.prototype.hasOwnProperty.call(req.body, "opening_balance")
+) {
+  const openingBalance = Number(req.body.opening_balance);
+
+  if (!Number.isFinite(openingBalance) || openingBalance < 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid opening balance",
+    });
+  }
+
+  req.body.opening_balance = openingBalance;
+}
+
+
     // Handle active/inactive status separately.
     if (Object.prototype.hasOwnProperty.call(req.body, "is_active")) {
       if (typeof req.body.is_active !== "boolean") {
@@ -615,6 +632,7 @@ export const updateCustomer = async (req, res) => {
       "state",
       "country",
       "pincode",
+      "opening_balance",
     ];
 
     for (const field of allowedFields) {
@@ -623,7 +641,8 @@ export const updateCustomer = async (req, res) => {
       }
     }
 
-    // Do not modify opening_balance, invoices, ledger, or payments here.
+// Do not modify invoices, ledger, or payments here.
+// Opening balance can be updated through the validated profile field.
     await customer.save();
 
     return res.status(200).json({

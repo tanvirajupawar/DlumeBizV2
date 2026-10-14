@@ -12,6 +12,7 @@ import CheckoutScreen from "./src/screens/Payment/CheckoutScreen";
 import POSPaymentSuccessScreen from "./src/screens/Payment/POSPaymentSuccessScreen";
 import CreditSummaryScreen from "./src/screens/Payment/CreditSummaryScreen";
 import POSReturnSuccessScreen from "./src/screens/POS/POSReturnSuccessScreen";
+import PaymentSummaryScreen from "./src/screens/Payment/PaymentSummaryScreen";
 
 import {
   AuthProvider,
@@ -51,6 +52,10 @@ if (isLoading) {
             <Stack.Screen
               name="POSReturnSuccess"
               component={POSReturnSuccessScreen}
+            />
+            <Stack.Screen
+              name="PaymentSummary"
+              component={PaymentSummaryScreen}
             />
           </>
         )}

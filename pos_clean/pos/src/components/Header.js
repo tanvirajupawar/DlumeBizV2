@@ -228,7 +228,7 @@ const closeSearch = () => {
   >
     <MaterialCommunityIcons
       name="truck-outline"
-      size={23}
+      size={32}
       color={transportationDetails ? "#60D394" : COLORS.textOnDark}
     />
   </Pressable>
@@ -267,7 +267,7 @@ const closeSearch = () => {
   >
     <MaterialCommunityIcons
       name="cart-arrow-down"
-      size={26}
+      size={32}
       color={COLORS.textOnDark}
     />
     {heldCartsCount > 0 && (
@@ -281,24 +281,26 @@ const closeSearch = () => {
 
 
 
-    {!hideCustomer && (
-      <Pressable
-        onPress={onCustomerPress}
-        style={styles.iconBtn}
-        hitSlop={8}
-      >
-        <MaterialCommunityIcons
-          name="account-outline"
-          size={26}
-          color={COLORS.textOnDark}
-        />
-        {customerSelected && (
-          <View style={styles.checkBadge}>
-            <Ionicons name="checkmark" size={10} color="#FFFFFF" />
-          </View>
-        )}
-      </Pressable>
+
+{!hideCustomer && (
+  <Pressable
+    onPress={onCustomerPress}
+    style={[
+      styles.customerButton,
+      customerSelected && styles.customerButtonSelected,
+    ]}
+    hitSlop={8}
+    testID="header-customer-button"
+  >
+    <Text style={styles.customerButtonText}>
+      Add Customer
+    </Text>
+    {customerSelected && (
+      <Ionicons name="checkmark-circle" size={16} color="#1D4ED8" />
     )}
+  </Pressable>
+)}
+
 
  
 
@@ -384,11 +386,11 @@ titleRow: {
       fontSize: 22,
       fontWeight: "600",
     },
-    rightTools: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-
+rightTools: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 16,
+},
     // ── Held-carts badge ──
     badge: {
       position: "absolute",
@@ -498,6 +500,29 @@ transportBtn: {
   alignItems: "center",
   justifyContent: "center",
   borderRadius: RADIUS.md,
+},
+customerButton: {
+  height: 40,
+  paddingHorizontal: 14,
+  marginLeft: 6,
+  borderRadius: 8,
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#FFFFFF",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+},
+
+customerButtonSelected: {
+  borderColor: "#93C5FD",
+},
+
+customerButtonText: {
+  color: "#1D4ED8",
+  fontSize: 14,
+  fontWeight: "700",
 },
 
   });

@@ -36,7 +36,12 @@ import CustomerFormScreen from "../Customer/CustomerFormScreen";
 import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
-import { createCustomerReturn } from "../../api/customerReturn";
+
+import {
+  createCustomerReturn,
+  fetchCustomerReturns,
+} from "../../api/customerReturn";
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useEffect } from "react";
@@ -73,7 +78,6 @@ import { getCached, setCached, getCachedSync } from "../../utils/cache";
 const { SunmiScanner } = NativeModules;
 const scannerEmitter = DeviceEventEmitter;
 const APP = { name: "D'LumeBiz", registerType: "Default Register" };
-const HELD_CARTS_STORAGE_KEY = "pos:held-carts:v1";
 
 
 const CACHE_KEYS = {
@@ -89,6 +93,14 @@ const CACHE_KEYS = {
 const ALL_ITEMS_CATEGORY = { _id: "all", category: "All Items" };
 
 export default function POSScreen() {
+  const { logout, user } = useAuth();
+
+const companyId =
+  user?.company?._id ||
+  user?.company_id ||
+  user?.companyId ||
+  null;
+
   const [activeNav, setActiveNav] = useState("cart");
   const [selectedCustomerAccount, setSelectedCustomerAccount] = useState(null);
   const [paymentCustomer, setPaymentCustomer] = useState(null);
@@ -293,17 +305,15 @@ const handleSaveCustomerForm = async () => {
     // ── EDIT ──
     if (editingCustomer) {
       const id = editingCustomer._id || editingCustomer.id;
-      const { opening_balance, ...updatePayload } = payload; // opening balance is not editable
-
-      const res = await updateCustomer(id, updatePayload);
+const res = await updateCustomer(id, payload);
       const updated = res?.data?.data || res?.data || {};
 
-      setSelectedCustomerAccount((prev) => ({
-        ...(prev || editingCustomer),
-        ...updatePayload,
-        customer_name: (customerFormValues.name || "").trim(),
-        ...updated,
-      }));
+setSelectedCustomerAccount((prev) => ({
+  ...(prev || editingCustomer),
+  ...payload,
+  customer_name: (customerFormValues.name || "").trim(),
+  ...updated,
+}));
       setAccountRefreshKey((k) => k + 1);
       await loadCustomers({ silent: true });
 
@@ -404,47 +414,88 @@ const handleToggleCustomerActive = async () => {
     setActiveNav(navBeforeProductForm === "productForm" ? "categories" : navBeforeProductForm);
   };
 
-  // ── Held Carts ────────────────────────────────────────────────────────────
+  
+// ── Held Carts: isolated by company ──────────────────────────────
 const [heldCarts, setHeldCarts] = useState([]);
 const [heldCartsLoaded, setHeldCartsLoaded] = useState(false);
+const [heldCartsCompanyId, setHeldCartsCompanyId] = useState(null);
 
 const [heldCartsSheetVisible, setHeldCartsSheetVisible] =
   useState(false);
 
+const heldCartsStorageKey = companyId
+  ? `pos:held-carts:v1:${companyId}`
+  : null;
+
+// Load carts whenever the active company changes.
 useEffect(() => {
+  let cancelled = false;
+
   const loadHeldCarts = async () => {
+    setHeldCartsLoaded(false);
+    setHeldCartsCompanyId(null);
+    setHeldCarts([]);
+    setHeldCartsSheetVisible(false);
+
+    if (!companyId || !heldCartsStorageKey) {
+      return;
+    }
+
     try {
       const saved = await AsyncStorage.getItem(
-        HELD_CARTS_STORAGE_KEY
+        heldCartsStorageKey
       );
 
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      if (cancelled) return;
 
-        if (Array.isArray(parsed)) {
-          setHeldCarts(parsed);
-        }
-      }
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      setHeldCarts(Array.isArray(parsed) ? parsed : []);
+      setHeldCartsCompanyId(companyId);
     } catch (error) {
+      if (cancelled) return;
+
       console.log("LOAD HELD CARTS ERROR:", error);
+      setHeldCarts([]);
+      setHeldCartsCompanyId(companyId);
     } finally {
-      setHeldCartsLoaded(true);
+      if (!cancelled) {
+        setHeldCartsLoaded(true);
+      }
     }
   };
 
   loadHeldCarts();
-}, []);
 
+  return () => {
+    cancelled = true;
+  };
+}, [companyId]);
+
+// Save only after the correct company's carts have loaded.
 useEffect(() => {
-  if (!heldCartsLoaded) return;
+  if (
+    !companyId ||
+    !heldCartsStorageKey ||
+    !heldCartsLoaded ||
+    heldCartsCompanyId !== companyId
+  ) {
+    return;
+  }
 
   AsyncStorage.setItem(
-    HELD_CARTS_STORAGE_KEY,
+    heldCartsStorageKey,
     JSON.stringify(heldCarts)
   ).catch((error) => {
     console.log("SAVE HELD CARTS ERROR:", error);
   });
-}, [heldCarts, heldCartsLoaded]);
+}, [
+  companyId,
+  heldCartsStorageKey,
+  heldCarts,
+  heldCartsLoaded,
+  heldCartsCompanyId,
+]);
 
   // ── More Options (Hold Cart) ─────────────────────────────────────────────
 
@@ -582,7 +633,6 @@ if (!isScanningRef.current && searchText.trim()) {
 
   const navigation = useNavigation();
   const route = useRoute();
-const { logout, user } = useAuth();
 
 
 
@@ -761,10 +811,13 @@ const handlePrintCustomerSummary = async (customer, range) => {
     console.log("====================================");
 
     // Fetch latest sales + payments
-    const [invoiceResponse, paymentResponse] = await Promise.all([
-      fetchCustomerInvoices(customerId),
-      fetchCustomerPayments(customerId),
-    ]);
+
+const [invoiceResponse, paymentResponse, returnResponse] =
+  await Promise.all([
+    fetchCustomerInvoices(customerId),
+    fetchCustomerPayments(customerId),
+    fetchCustomerReturns(customerId),
+  ]);
 
     const invoices =
       invoiceResponse?.data?.data ||
@@ -775,6 +828,13 @@ const handlePrintCustomerSummary = async (customer, range) => {
       paymentResponse?.data?.data ||
       paymentResponse?.data ||
       [];
+
+      
+const returns =
+  returnResponse?.data?.data ??
+  returnResponse?.data ??
+  [];
+
 
     const from = range?.from ? new Date(range.from) : null;
     const to = range?.to ? new Date(range.to) : new Date();
@@ -882,22 +942,47 @@ console.log(
       sortDate: getDate(payment).getTime(),
     }));
 
-    const rows = [
-      ...invoiceRows,
-      ...paymentRows,
-    ]
-      .sort((a, b) => a.sortDate - b.sortDate)
-      .map(({ sortDate, ...row }) => row);
+
+
+const filteredReturns = (Array.isArray(returns) ? returns : [])
+  .filter(isInRange);
+
+const returnRows = filteredReturns.map((item) => ({
+  date: getDate(item).toLocaleDateString("en-GB"),
+  kind: "return",
+  title: item.return_no || item.returnNo || "Customer Return",
+  note: item.description || "Return",
+  amount: Number(
+    item.total_amount ??
+    item.totalAmount ??
+    item.amount ??
+    0
+  ),
+  sortDate: getDate(item).getTime(),
+}));
+
+
+
+const rows = [
+  ...invoiceRows,
+  ...paymentRows,
+  ...returnRows,
+]
+  .sort((a, b) => a.sortDate - b.sortDate)
+  .map(({ sortDate, ...row }) => row);
+
 
     const totalInvoiced = invoiceRows.reduce(
       (sum, row) => sum + row.amount,
       0
     );
 
-    const totalReceived = paymentRows.reduce(
-      (sum, row) => sum + row.amount,
-      0
-    );
+
+const totalReceived = [...paymentRows, ...returnRows].reduce(
+  (sum, row) => sum + row.amount,
+  0
+);
+
 
     const customerName =
       customer?.customer_name ||
@@ -928,6 +1013,18 @@ amount: getInvoicePayableAmount(invoice),
     kind: "payment",
     amount: Number(payment.amount || 0),
   })),
+  
+...(Array.isArray(returns) ? returns : []).map((item) => ({
+  date: getDate(item),
+  kind: "return",
+  amount: Number(
+    item.total_amount ??
+    item.totalAmount ??
+    item.amount ??
+    0
+  ),
+})),
+
 ].filter((row) => {
   if (!from) return false;
 
@@ -941,9 +1038,9 @@ amount: getInvoicePayableAmount(invoice),
 });
 
 const openingBalance = broughtForwardTransactions.reduce(
-  (balance, row) =>
-    balance +
-    (row.kind === "invoice" ? row.amount : -row.amount),
+(balance, row) =>
+  balance +
+  (row.kind === "invoice" ? row.amount : -row.amount),
   originalOpeningBalance
 );
 
@@ -1747,31 +1844,21 @@ navigation.navigate("POSReturnSuccess", {
 
 
 
-  // Existing Sale checkout — unchanged
- 
-const isCreditMode = user?.company?.payment_mode === "CREDIT";
 
-if (isCreditMode && selectedCustomer !== WALK_IN_CUSTOMER) {
-  navigation.navigate("CreditSummary", {
-    cartItems,
-    customer: selectedCustomer,
-    subtotal,
-    tax,
-    discount,
-    grandTotal,
-    transportationDetails,
-  });
-} else {
-  navigation.navigate("Checkout", {
-    cartItems,
-    customer: selectedCustomer,
-    subtotal,
-    tax,
-    discount,
-    grandTotal,
-    transportationDetails,
-  });
-}
+// All sales — including walk-in customers — go through Payment Summary.
+navigation.navigate("PaymentSummary", {
+  cartItems,
+  customer:
+    selectedCustomer === WALK_IN_CUSTOMER
+      ? null
+      : selectedCustomer,
+  subtotal,
+  tax,
+  discount,
+  grandTotal,
+  transportationDetails,
+});
+
 
 }}
 

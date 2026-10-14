@@ -7,11 +7,11 @@ import {
   Modal,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, RADIUS } from './Colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const MAX_CONTENT_WIDTH = 720;
 
@@ -174,7 +174,11 @@ export default function HeldCartsSheet({
       onRequestClose={onClose}
       testID="held-carts-sheet"
     >
-      <SafeAreaView style={styles.safe} testID="held-carts-safe-area">
+   <SafeAreaView
+  style={styles.safe}
+  edges={["top", "bottom"]}
+  testID="held-carts-safe-area"
+>
         <View style={styles.header}>
           <Pressable
             onPress={onClose}
@@ -182,7 +186,7 @@ export default function HeldCartsSheet({
             style={styles.headerIconBtn}
             testID="held-carts-close-button"
           >
-            <Ionicons name="close" size={22} color={COLORS.textOnDark} />
+            <Ionicons name="close" size={30} color={COLORS.textOnDark} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
             Held Carts
@@ -217,10 +221,10 @@ export default function HeldCartsSheet({
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-  },
+safe: {
+  flex: 1,
+  backgroundColor: COLORS.card,
+},
   header: {
     height: 56,
     backgroundColor: COLORS.navy,
@@ -228,18 +232,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
   },
-  headerIconBtn: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: SPACING.sm,
-    marginLeft: -SPACING.xs,
-  },
+headerIconBtn: {
+  width: 42,
+  height: 42,
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginRight: SPACING.sm,
+  marginLeft: -SPACING.xs,
+},
   headerTitle: {
     color: COLORS.textOnDark,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   countBadge: {

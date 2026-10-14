@@ -235,14 +235,26 @@ const discount = Number(inv.discount_amount ?? inv.discount ?? 0);
       inv.client_id ||
       "",
 customer: customerName,
+
 customerNumber:
-  customer.mobile ||
-  customer.phone ||
-  customer.customer_number ||
-  customer.customerNumber ||
+  (typeof customer === "object" && customer
+    ? (
+        customer.contact_no_1 ||
+        customer.mobile ||
+        customer.phone ||
+        customer.mobile_number ||
+        customer.customer_number ||
+        customer.customerNumber
+      )
+    : "") ||
   inv.customer_mobile ||
   inv.customer_number ||
+  inv.customer?.contact_no_1 ||
+  inv.customer?.mobile ||
+  inv.customer?.phone ||
   "",
+
+
 companyName,
 total: grandTotal,
     status,
@@ -267,27 +279,29 @@ grandTotal,
     pendingAmount,
     returnAmount: totalReturn,
 
-customerNumber:
-  customer.mobile ||
-  customer.phone ||
-  customer.customer_number ||
-  customer.customerNumber ||
-  inv.customer_mobile ||
-  inv.customer_number ||
-  "",
+
 
 customerInfo: {
   _id: customer._id || "",
   company_name: companyName,
   gstin: customer.gstin || "",
-  phone:
-    customer.mobile ||
-    customer.phone ||
-    customer.customer_number ||
-    customer.customerNumber ||
-    inv.customer_mobile ||
-    inv.customer_number ||
-    "",
+phone:
+  (typeof customer === "object" && customer
+    ? (
+        customer.contact_no_1 ||
+        customer.mobile ||
+        customer.phone ||
+        customer.mobile_number ||
+        customer.customer_number ||
+        customer.customerNumber
+      )
+    : "") ||
+  inv.customer_mobile ||
+  inv.customer_number ||
+  inv.customer?.contact_no_1 ||
+  inv.customer?.mobile ||
+  inv.customer?.phone ||
+  "",
   email: customer.email || "",
   address_line1: customer.address_line1 || customer.address || "",
   city: customer.city || "",

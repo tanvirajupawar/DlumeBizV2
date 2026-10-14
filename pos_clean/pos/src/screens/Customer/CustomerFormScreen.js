@@ -264,14 +264,15 @@ const {
               placeholder="e.g. customername@domain.com"
               keyboardType="email-address"
             />
-         <FormField
+
+<FormField
   label="Opening Balance"
   value={String(opening_balance ?? "")}
   onChangeText={(t) => onChange("opening_balance", t)}
   placeholder="e.g. 5000"
   keyboardType="numeric"
-  editable={!isEdit}
 />
+
 
           </View>
         </View>

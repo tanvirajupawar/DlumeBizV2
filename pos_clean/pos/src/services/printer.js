@@ -557,7 +557,9 @@ const normalizedLedger = {
     .filter((row) => row?.kind !== "balance")
     .map((row) => ({
       date: String(row?.date || ""),
-      kind: row?.kind === "return" ? "payment" : String(row?.kind || ""),
+    
+kind: String(row?.kind || ""),
+
       title: String(row?.title || "Transaction").trim(),
       note: String(row?.note || "").trim(),
       amount: Number(row?.amount || 0),
