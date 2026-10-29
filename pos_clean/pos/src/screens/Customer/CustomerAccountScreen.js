@@ -11,9 +11,13 @@ import {
   Alert,
   StyleSheet,
   ActivityIndicator,
+  Linking,
+  Platform,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import Header from "../../components/Header";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import {
@@ -121,16 +125,19 @@ const itemName = (d) => {
  * Customer account (ledger) — table style.
  * Renders its own <Header/>: back • customer details • outstanding • date filter.
  */
+
 export default function CustomerAccountScreen({
   customer: initialCustomer,
+  company,
   onBack,
   onMenuPress,
-  onPrintSummary,
   onEditPress,
+  onPrintSummary,
 }) {
   const customerId = initialCustomer?._id || initialCustomer?.id;
 
   const [customer, setCustomer] = useState(initialCustomer || null);
+
   const [account, setAccount] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(null); // yyyy-mm-dd
@@ -203,6 +210,11 @@ export default function CustomerAccountScreen({
 
 const payments = paymentsRes?.data?.data ?? paymentsRes?.data ?? [];
 
+console.log(
+  "💳 CUSTOMER PAYMENTS:",
+  JSON.stringify(payments, null, 2)
+);
+
 const returns = returnsRes?.data?.data ?? returnsRes?.data ?? [];
 
 // ─────────────────────────────────────────────
@@ -226,6 +238,15 @@ const openingBalance = Number(
   0
 );
 
+const openingBalancePaid = Number(
+  rawCustomer.opening_balance_paid || 0
+);
+
+const remainingOpeningBalance = Math.max(
+  0,
+  openingBalance - openingBalancePaid
+);
+
 console.log("🔵 CUSTOMER RESPONSE:", customerRes);
 console.log("🔵 CUSTOMER DATA:", customerData);
 console.log("🔵 OPENING BALANCE FOUND:", openingBalance);
@@ -246,6 +267,7 @@ const returnEntries = (Array.isArray(returns) ? returns : []).map((x) => ({
 }));
 
 // Always create the opening row when there is an opening balance
+
 const openingEntry =
   openingBalance !== 0
     ? [
@@ -255,17 +277,17 @@ const openingEntry =
 
           type: "opening",
           isOpeningBalance: true,
-
-          // keep all possible flags
           opening_balance: true,
           openingBalance: true,
 
-          // amount
-          balance_amount: openingBalance,
-          total_amount: openingBalance,
-          amount: openingBalance,
+          // Preserve the original amount for reference.
+          original_opening_balance: openingBalance,
 
-          // date
+        // Display the original opening balance in the Invoiced column.
+balance_amount: openingBalance,
+total_amount: openingBalance,
+amount: openingBalance,
+
           date:
             rawCustomer.opening_balance_date ||
             rawCustomer.openingBalanceDate ||
@@ -275,6 +297,7 @@ const openingEntry =
         },
       ]
     : [];
+
 
 console.log("🟢 OPENING ENTRY:", openingEntry);
 setAccount([
@@ -315,7 +338,7 @@ console.log(
       const diff = dayOf(a) - dayOf(b);
       return diff !== 0 ? diff : createdOf(a) - createdOf(b);
     });
-    let bal = 0;
+let bal = 0;
     return chrono.map((e, idx) => {
    const isCredit = e.type === "payment" || e.type === "return";
 
@@ -645,6 +668,510 @@ rows: transactionRows,
     ]);
   };
 
+
+
+
+const handleViewLedgerPDF = async () => {
+  try {
+    if (loading) {
+      Alert.alert("Please wait", "Customer account is still loading.");
+      return;
+    }
+
+    if (!withBalance.length) {
+      Alert.alert("No Data", "There are no account transactions to view.");
+      return;
+    }
+
+    // Company details: use populated company data when available.
+    // Connect your actual logged-in company object here if needed.
+
+
+const companyInfo =
+  company && typeof company === "object"
+    ? company
+    : {};
+
+const companyName =
+  companyInfo.name ||
+  companyInfo.company_name ||
+  companyInfo.business_name ||
+  "";
+
+const companyGST = companyInfo.gst || companyInfo.gstin || "";
+const companyPAN = companyInfo.pan || companyInfo.PAN || "";
+const companyEmail = companyInfo.email || "";
+const companyMobile =
+  companyInfo.mobile || companyInfo.contact_no || "";
+const companyAddress = companyInfo.address || "";
+
+
+
+    const rows = [...withBalance].sort((a, b) => {
+      if (isOpening(a) !== isOpening(b)) {
+        return isOpening(a) ? -1 : 1;
+      }
+
+      const diff = dayOf(a) - dayOf(b);
+      return diff !== 0 ? diff : createdOf(a) - createdOf(b);
+    });
+
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const tableRows = rows
+      .map((item) => {
+        const opening = isOpening(item);
+        const isPayment = item.type === "payment";
+        const isReturn = item.type === "return";
+        const isCredit = isPayment || isReturn;
+
+        const amount = opening
+          ? openingAmount(item)
+          : isCredit
+          ? Number(item.amount ?? item.total_amount ?? 0)
+          : totalOf(item);
+
+        const debit = isCredit ? 0 : amount;
+        const credit = isCredit ? amount : 0;
+
+        totalDebit += debit;
+        totalCredit += credit;
+
+        const date = opening
+          ? fmtDate(item.order_date || item.date)
+          : fmtDate(
+              item.return_date ||
+                item.payment_date ||
+                item.invoice_date ||
+                entryDate(item)
+            );
+
+        const refNo = opening
+          ? "—"
+          : isPayment
+          ? item.receipt_no ||
+            item.receiptNo ||
+            item.payment_no ||
+            "—"
+          : isReturn
+          ? item.return_no || "—"
+          : item.invoice_no || item.invoiceNo || "—";
+
+        let particulars = "";
+        let description = "";
+        let rowClass = "";
+        let productRows = "";
+
+        if (opening) {
+          particulars = "Opening Balance";
+          description = "Previous Outstanding";
+          rowClass = "opening";
+        } else if (isPayment) {
+          particulars = [
+            item.payment_method || "Payment",
+            item.remarks || item.note,
+          ]
+            .filter(Boolean)
+            .join(" - ");
+          description = "—";
+          rowClass = "payment";
+        } else if (isReturn) {
+          particulars = item.return_no || "Customer Return";
+          description = item.description || "—";
+          rowClass = "return";
+        } else {
+          particulars = `Invoice - ${money(amount)}`;
+          const details = itemsOf(item);
+
+          if (details.length) {
+            productRows = details
+              .map((d) => {
+                const product = d.product_id &&
+                  typeof d.product_id === "object"
+                  ? d.product_id
+                  : {};
+
+                const productName = itemName(d);
+                const desc =
+                  d.description ||
+                  d.brand ||
+                  product.brand ||
+                  product.description ||
+                  "";
+
+                const bags = d.bags ?? "—";
+                const units = d.units ?? "—";
+                const qty = d.qty ?? d.quantity ?? "—";
+                const size = d.size ?? product.size ?? "—";
+                const rate = Number(d.rate ?? d.price ?? 0);
+                const itemAmount = Number(
+                  d.amount ?? Number(qty === "—" ? 0 : qty) * rate
+                );
+
+                return `
+                  <tr class="product">
+                    <td></td>
+                    <td></td>
+                    <td class="product-name">• ${esc(productName)}</td>
+                    <td>${esc(desc || "—")}</td>
+                    <td class="center">${esc(bags)}</td>
+                    <td class="center">${esc(units)}</td>
+                    <td class="center">${esc(qty)}</td>
+                    <td class="center">${esc(size)}</td>
+                    <td class="num">${money(rate)}</td>
+                    <td class="num">${money(itemAmount)}</td>
+                    <td class="num"></td>
+                    <td class="num blue">${money(item._bal)}</td>
+                  </tr>
+                `;
+              })
+              .join("");
+          }
+        }
+
+        // Invoices with product details show a heading row and detail rows.
+        // The invoice amount is displayed in the heading to avoid changing
+        // the ledger's actual running-balance calculation.
+        const showInvoiceAmount =
+          !opening && !isCredit && productRows.length === 0;
+
+        return `
+          <tr class="${rowClass}">
+            <td>${esc(date || "—")}</td>
+            <td>${esc(refNo)}</td>
+            <td class="particulars">${esc(particulars)}</td>
+            <td>${esc(description || "—")}</td>
+            <td class="center">—</td>
+            <td class="center">—</td>
+            <td class="center">—</td>
+            <td class="center">—</td>
+            <td class="num">—</td>
+            <td class="num">${debit && showInvoiceAmount ? money(debit) : "—"}</td>
+            <td class="num">${credit ? money(credit) : "—"}</td>
+            <td class="num blue">${money(item._bal)}</td>
+          </tr>
+          ${productRows}
+        `;
+      })
+      .join("");
+
+    const finalBalance = Number(
+      rows.length ? rows[rows.length - 1]._bal : 0
+    );
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+          <style>
+            @page {
+              size: A4 landscape;
+              margin: 10mm;
+            }
+
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              color: #111827;
+              font-size: 10px;
+              margin: 0;
+              padding: 0;
+            }
+
+            .company-header {
+              text-align: center;
+              padding: 4px 0 10px;
+              border-bottom: 1px solid #d1d5db;
+              margin-bottom: 10px;
+            }
+
+            .company-name {
+              color: #315bea;
+              font-size: 23px;
+              font-weight: 700;
+              margin-bottom: 8px;
+              text-transform: uppercase;
+            }
+
+            .company-meta {
+              display: flex;
+              justify-content: space-between;
+              gap: 20px;
+              line-height: 1.7;
+              font-size: 10px;
+            }
+
+            .company-meta > div {
+              width: 50%;
+            }
+
+            .ledger-title {
+              text-align: center;
+              font-size: 14px;
+              font-weight: 700;
+              margin: 10px 0 14px;
+            }
+
+            .ledger-title span {
+              color: #315bea;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: fixed;
+              font-size: 9px;
+            }
+
+            th,
+            td {
+              border: 1px solid #d6d6d6;
+              padding: 6px 5px;
+              vertical-align: middle;
+              overflow-wrap: anywhere;
+            }
+
+            th {
+              background: #e9e9e9;
+              color: #111827;
+              font-size: 9px;
+              font-weight: 700;
+              text-align: left;
+              white-space: normal;
+            }
+
+            th:nth-child(1) { width: 8%; }
+            th:nth-child(2) { width: 9%; }
+            th:nth-child(3) { width: 16%; }
+            th:nth-child(4) { width: 8%; }
+            th:nth-child(5) { width: 5%; }
+            th:nth-child(6) { width: 5%; }
+            th:nth-child(7) { width: 6%; }
+            th:nth-child(8) { width: 6%; }
+            th:nth-child(9) { width: 6%; }
+            th:nth-child(10) { width: 9%; }
+            th:nth-child(11) { width: 9%; }
+            th:nth-child(12) { width: 9%; }
+
+            .num {
+              text-align: right;
+              white-space: nowrap;
+            }
+
+            .center {
+              text-align: center;
+            }
+
+            .opening {
+              background: #f1f1f1;
+              font-weight: 700;
+            }
+
+            .payment {
+              background: #e7f7e8;
+              color: #087b28;
+              font-weight: 700;
+            }
+
+            .return {
+              background: #fff3e7;
+              font-weight: 700;
+            }
+
+            .product {
+              background: #ffffff;
+            }
+
+            .product:nth-child(even) {
+              background: #fafafa;
+            }
+
+            .product-name {
+              font-weight: 600;
+            }
+
+            .blue {
+              color: #315bea;
+              font-weight: 700;
+            }
+
+            .totals {
+              width: 300px;
+              margin: 16px 0 0 auto;
+              border: 1px solid #d6d6d6;
+            }
+
+            .total-row {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
+              padding: 7px 9px;
+              background: #ededed;
+              border-bottom: 1px solid #d6d6d6;
+              font-size: 10px;
+            }
+
+            .total-row:last-child {
+              border-bottom: 0;
+            }
+
+            .total-label {
+              flex: 1;
+              text-align: right;
+              font-weight: 700;
+            }
+
+            .total-value {
+              min-width: 90px;
+              text-align: right;
+              font-weight: 700;
+            }
+
+            .balance-due {
+              background: #dcecff;
+              color: #111827;
+            }
+
+            tr {
+              page-break-inside: avoid;
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="company-header">
+            <div class="company-name">${esc(companyName)}</div>
+
+            <div class="company-meta">
+              <div>
+                ${companyGST ? `GSTIN: ${esc(companyGST)}<br />` : ""}
+                ${companyEmail ? `Email: ${esc(companyEmail)}` : ""}
+                ${companyAddress ? `<br />${esc(companyAddress)}` : ""}
+              </div>
+
+              <div>
+                ${companyPAN ? `PAN: ${esc(companyPAN)}<br />` : ""}
+                ${companyMobile ? `Mobile: ${esc(companyMobile)}` : ""}
+              </div>
+            </div>
+          </div>
+
+         <div class="ledger-title">
+  Sales Ledger of <span>${esc(name)}</span>
+</div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Ref No.</th>
+                <th>Item / Particulars</th>
+                <th>Description</th>
+                <th>Bags</th>
+                <th>Units</th>
+                <th>Qty</th>
+                <th>Size</th>
+                <th>Rate</th>
+                <th>Debit (₹)</th>
+                <th>Credit (₹)</th>
+                <th>Balance (₹)</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+
+          <div class="totals">
+            <div class="total-row">
+              <span class="total-label">Total Invoice Amount</span>
+              <span class="total-value">${money(totalDebit)}</span>
+            </div>
+
+            <div class="total-row">
+              <span class="total-label">Total Paid / Received</span>
+              <span class="total-value">${money(totalCredit)}</span>
+            </div>
+
+            <div class="total-row balance-due">
+              <span class="total-label">Balance Due</span>
+              <span class="total-value">${money(finalBalance)}</span>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+
+
+const file = await Print.printToFileAsync({
+  html,
+  base64: false,
+});
+
+
+const customerCompanyName =
+  customer.company_name ||
+  customer.company ||
+  customer.company_id?.name ||
+  "";
+
+const safeCompanyName = (customerCompanyName || "Company")
+  .trim()
+  .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+const safeCustomerName = (name || "Customer")
+  .trim()
+  .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+const date = new Date().toISOString().slice(0, 10);
+
+const fileName = `${safeCompanyName}_${safeCustomerName}_Sales_Reports.pdf`;
+
+const pdfUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+// Copy PDF to a meaningful filename.
+await FileSystem.copyAsync({
+  from: file.uri,
+  to: pdfUri,
+});
+
+const canShare = await Sharing.isAvailableAsync();
+
+if (!canShare) {
+  Alert.alert(
+    "Cannot Open PDF",
+    "PDF was created, but sharing is not available on this device."
+  );
+  return;
+}
+
+await Sharing.shareAsync(pdfUri, {
+  mimeType: "application/pdf",
+  dialogTitle: "Customer Ledger PDF",
+  UTI: "com.adobe.pdf",
+});
+
+
+  } catch (err) {
+    console.log("❌ VIEW CUSTOMER LEDGER PDF ERROR:", err);
+
+    Alert.alert(
+      "PDF Preview Failed",
+      err?.message || "Unable to open the customer ledger PDF."
+    );
+  }
+};
+
+
   // ── Ledger table ──
   const renderEntry = ({ item, index }) => {
     const opening = isOpening(item);
@@ -849,16 +1376,32 @@ style={[
       </Header>
 
       {/* ── Toolbar ── */}
-      <View style={styles.toolbar}>
-        <Text style={styles.toolbarTitle}>Statement</Text>
-        <Text style={styles.toolbarMeta}>
-          {loading
-            ? ""
-            : `${ledger.length} transaction${ledger.length === 1 ? "" : "s"}  \u2022  ${
-                selectedDate ? dateLabel : "All dates"
-              }`}
-        </Text>
-      </View>
+     <View style={styles.toolbar}>
+  <Text style={styles.toolbarTitle}>Statement</Text>
+
+  <View style={styles.toolbarRight}>
+    <Text style={styles.toolbarMeta}>
+      {loading
+        ? ""
+        : `${ledger.length} transaction${ledger.length === 1 ? "" : "s"} • ${
+            selectedDate ? dateLabel : "All dates"
+          }`}
+    </Text>
+
+ <Pressable
+  style={styles.exportLedgerBtn}
+  onPress={handleViewLedgerPDF}
+  disabled={loading}
+>
+  <MaterialCommunityIcons
+    name="file-pdf-box"
+    size={18}
+    color={COLORS.white}
+  />
+  <Text style={styles.exportLedgerBtnText}>View PDF</Text>
+</Pressable>
+  </View>
+</View>
 
       {/* ── Table ── */}
       <View style={styles.body}>
@@ -935,6 +1478,18 @@ style={[
             <Text style={styles.panelPrintBtnText}>Print</Text>
           </Pressable>
         </View>
+
+<Pressable
+  style={styles.panelPrintBtn}
+  onPress={handleViewLedgerPDF}
+>
+  <MaterialCommunityIcons
+    name="file-pdf-box"
+    size={17}
+    color={COLORS.primary}
+  />
+  <Text style={styles.panelPrintBtnText}>View PDF</Text>
+</Pressable>
 
         <View style={styles.panelBody}>
           {summaryRows.length === 0 ? (
@@ -1405,4 +1960,25 @@ receivedAmount: {
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.12)",
   },
+  toolbarRight: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 12,
+},
+
+exportLedgerBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  backgroundColor: COLORS.primary,
+  paddingHorizontal: 12,
+  paddingVertical: 9,
+  borderRadius: RADIUS.md,
+},
+
+exportLedgerBtnText: {
+  color: COLORS.white,
+  fontSize: 13,
+  fontWeight: "700",
+},
 });

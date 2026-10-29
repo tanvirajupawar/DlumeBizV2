@@ -266,6 +266,7 @@ export const getCustomerInvoices = async (req, res) => {
 };
 
 
+
 export const getCreditSummary = async (req, res) => {
   try {
     const companyId = req.user.company_id;
@@ -275,10 +276,18 @@ export const getCreditSummary = async (req, res) => {
       req.query.current_amount || 0
     );
 
-    // --------------------------------
-    // 1. FIND CUSTOMER
-    // --------------------------------
+    // 1. Validate current invoice amount
+    if (
+      !Number.isFinite(currentInvoiceAmount) ||
+      currentInvoiceAmount < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid current invoice amount",
+      });
+    }
 
+    // 2. Find customer belonging to this company
     const customer = await Customer.findOne({
       _id: customerId,
       company_id: companyId,
@@ -292,59 +301,89 @@ export const getCreditSummary = async (req, res) => {
       });
     }
 
-    // --------------------------------
-    // 2. ORIGINAL OPENING BALANCE
-    // --------------------------------
-
+    // 3. Calculate remaining opening balance
     const openingBalance = Number(
       customer.opening_balance || 0
     );
 
-    // --------------------------------
-    // 3. GET CUSTOMER LEDGER
-    // --------------------------------
-
-    const ledgerEntries = await CustomerLedger.find({
+    // Only count payments specifically allocated to opening balance.
+    // Do not count invoice payments here.
+    const openingBalancePayments = await CustomerLedger.find({
       company_id: companyId,
       customer_id: customer._id,
-    })
-      .sort({ transaction_date: 1, createdAt: 1 })
-      .lean();
+      type: "PAYMENT",
+      sale_id: null,
+      description: "Payment against opening balance",
+    }).lean();
 
-    // --------------------------------
-    // 4. CALCULATE LEDGER BALANCE
-    // --------------------------------
-
-    const ledgerDebit = ledgerEntries.reduce(
-      (total, entry) =>
-        total + Number(entry.debit || 0),
-      0
-    );
-
-    const ledgerCredit = ledgerEntries.reduce(
+    const openingBalancePaid = openingBalancePayments.reduce(
       (total, entry) =>
         total + Number(entry.credit || 0),
       0
     );
 
-    // --------------------------------
-    // 5. PREVIOUS OUTSTANDING
-    // --------------------------------
-
-    const previousOutstanding = Math.max(
+    const remainingOpeningBalance = Math.max(
       0,
-      openingBalance +
-        ledgerDebit -
-        ledgerCredit
+      openingBalance - openingBalancePaid
     );
 
-    // --------------------------------
-    // 6. CURRENT INVOICE + OUTSTANDING
-    // --------------------------------
+    // 4. Get all existing invoices for this customer
+    const sales = await Sale.find({
+      company_id: companyId,
+      customer_id: customer._id,
+    })
+      .select("_id total_amount")
+      .lean();
 
+    const saleIds = sales.map((sale) => sale._id);
+
+    // 5. Get payments allocated to those invoices
+    const allocations = saleIds.length
+      ? await PaymentAllocation.find({
+          company_id: companyId,
+          sale_id: { $in: saleIds },
+        })
+          .select("sale_id amount")
+          .lean()
+      : [];
+
+    // 6. Total payments per invoice
+    const paidMap = new Map();
+
+    for (const allocation of allocations) {
+      const saleId = allocation.sale_id.toString();
+
+      paidMap.set(
+        saleId,
+        (paidMap.get(saleId) || 0) +
+          Number(allocation.amount || 0)
+      );
+    }
+
+    // 7. Calculate outstanding across existing invoices
+    const invoiceOutstanding = sales.reduce((total, sale) => {
+      const paidAmount =
+        paidMap.get(sale._id.toString()) || 0;
+
+      const balance = Math.max(
+        0,
+        Number(sale.total_amount || 0) - paidAmount
+      );
+
+      return total + balance;
+    }, 0);
+
+    // 8. Previous outstanding = opening balance + invoice balances
+    const previousOutstanding =
+      Math.round(
+        (remainingOpeningBalance + invoiceOutstanding) * 100
+      ) / 100;
+
+    // 9. Include the invoice currently being created
     const totalPayable =
-      previousOutstanding +
-      currentInvoiceAmount;
+      Math.round(
+        (previousOutstanding + currentInvoiceAmount) * 100
+      ) / 100;
 
     return res.status(200).json({
       success: true,

@@ -8,6 +8,8 @@ import Sale from "../models/sale.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
 import CustomerReturnCounter from "../models/customer_return_counter.model.js";
 import CustomerReturnAllocation from "../models/customer_return_allocation.model.js";
+import Product from "../models/product.model.js";
+import StockManagement from "../models/stock_management.model.js";
 
 export const createCustomerReturn = async (req, res) => {
   const session = await mongoose.startSession();
@@ -114,15 +116,22 @@ if (customerVersionUpdate.modifiedCount !== 1) {
       const amount = Math.round(qty * price * 100) / 100;
       totalAmount += amount;
 
-   preparedItems.push({
+ const productId = item.product_id || null;
+
+if (productId && !mongoose.isValidObjectId(productId)) {
+  throw new Error("Invalid product ID in return item");
+}
+
+preparedItems.push({
   company_id: companyId,
+  product_id: productId,
   description: String(
     item.product_name ||
-    item.item_name ||
-    item.name ||
-    item.product ||
-    item.description ||
-    ""
+      item.item_name ||
+      item.name ||
+      item.product ||
+      item.description ||
+      ""
   ).trim(),
   qty,
   price,
@@ -275,6 +284,62 @@ const returnNo = `RET-${String(counter.next_number).padStart(5, "0")}`;
       { session }
     );
 
+
+
+    // DEBUG: Check whether returned items have product IDs.
+    console.log(
+      "RETURN STOCK DEBUG:",
+      preparedItems.map((item) => ({
+        product_id: item.product_id,
+        description: item.description,
+        qty: item.qty,
+      }))
+    );
+
+    // Increase stock for returned Product POS items.
+    // Calculator items without a product_id are skipped.
+    for (const item of preparedItems) {
+      if (!item.product_id) {
+        console.log(
+          "RETURN STOCK SKIPPED: missing product_id",
+          item.description
+        );
+        continue;
+      }
+
+
+  const product = await Product.findOne({
+    _id: item.product_id,
+    company_id: companyId,
+  }).session(session);
+
+  if (!product) {
+    throw new Error(
+      `Product ${item.product_id} not found in this company`
+    );
+  }
+
+  let stock = await StockManagement.findOne({
+    product_id: product._id,
+    company_id: companyId,
+  }).session(session);
+
+  if (!stock) {
+    stock = new StockManagement({
+      product_id: product._id,
+      company_id: companyId,
+      in: 0,
+      out: 0,
+      total_stock: 0,
+    });
+  }
+
+  // Add returned quantity to stock received.
+  stock.in = Number(stock.in || 0) + item.qty;
+
+  // The StockManagement model recalculates total_stock on save.
+  await stock.save({ session });
+}
 
     // Allocate the return against oldest unpaid invoices first (FIFO).
     const salePayments = await PaymentAllocation.find({

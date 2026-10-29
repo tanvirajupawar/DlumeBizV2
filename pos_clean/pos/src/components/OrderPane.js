@@ -20,8 +20,17 @@ const GRID_PADDING_TOP = 12;       // small gap between tabs and product grid
 const TAB_BAR_HEIGHT = 52;
 
 function ProductCard({ product, cardWidth, onPress }) {
-  const name = product.product || product.name || 'Unnamed';
-  const price = Number(product.price || 0);
+const name = product.product || product.name || 'Unnamed';
+const type = product.type || product.product_type || product.category_name || '';
+
+const displayName = type
+  ? `${name} - ${type}`
+  : name;
+
+const isLongName = displayName.length > 18;
+const size = product.size ? String(product.size).trim() : '';
+const price = Number(product.price || 0);
+  
 
   const [imageError, setImageError] = useState(false);
 
@@ -38,7 +47,12 @@ style={[
       activeOpacity={1}
       onPress={() => onPress?.(product)}
     >
-   <View style={styles.imageWrap}>
+ <View
+  style={[
+    styles.imageWrap,
+    isLongName && styles.imageWrapSmall,
+  ]}
+>
   <View
     style={{
       width: "100%",
@@ -74,13 +88,31 @@ style={[
           .substring(0, 2)
           .toUpperCase()}
       </Text>
-    )}
+       )}
   </View>
+
+  {!!size && (
+    <View style={styles.sizeRibbon}>
+      <Text style={styles.sizeRibbonText} numberOfLines={1}>
+        {size}
+      </Text>
+    </View>
+  )}
 </View>
 
-      <View style={styles.nameWrap}>
-        <Text numberOfLines={1} style={styles.nameText}>{name}</Text>
-      </View>
+    <View style={styles.nameWrap}>
+  <Text
+    numberOfLines={2}
+    adjustsFontSizeToFit
+    minimumFontScale={0.82}
+    style={[
+      styles.nameText,
+      isLongName && styles.nameTextSmall,
+    ]}
+  >
+    {displayName}
+  </Text>
+</View>
 
       <View style={styles.priceWrap}>
         <Text style={styles.priceText}>₹{price.toLocaleString('en-IN')}</Text>
@@ -89,8 +121,15 @@ style={[
   );
 }
 
-export default function OrderPane({ categories = [], activeCategory, onSelectCategory, products = [], onProductPress }) {
-  const [containerWidth, setContainerWidth] = useState(0);
+export default function OrderPane({
+  categories,
+  activeCategory,
+  onSelectCategory,
+  products,
+  onProductPress,
+  onAddItem,
+}) {
+    const [containerWidth, setContainerWidth] = useState(0);
   const numColumns = 5;
 
   const cardWidth =
@@ -109,29 +148,48 @@ export default function OrderPane({ categories = [], activeCategory, onSelectCat
       onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
     >
       {/* Border lives on this wrapper View, not the FlatList's content box */}
-      <View style={styles.tabBarWrapper}>
-        <FlatList
-          data={categories}
-          horizontal
-          keyExtractor={(c) => String(c._id)}
-          showsHorizontalScrollIndicator={false}
-          style={styles.tabBarList}
-          contentContainerStyle={styles.tabRow}
-          renderItem={({ item }) => {
-            const active = String(item._id) === String(activeCategory);
-            return (
-              <TouchableOpacity
-                style={styles.tab}
-                onPress={() => onSelectCategory?.(item._id)}
-                activeOpacity={1}
-              >
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>{item.category}</Text>
-                <View style={[styles.tabUnderline, !active && styles.tabUnderlineHidden]} />
-              </TouchableOpacity>
-            );
-          }}
-        />
-      </View>
+
+<View style={styles.tabBarWrapper}>
+  <FlatList
+    data={categories}
+    horizontal
+    keyExtractor={(c) => String(c._id)}
+    showsHorizontalScrollIndicator={false}
+    style={styles.tabBarList}
+    contentContainerStyle={styles.tabRow}
+    renderItem={({ item }) => {
+      const active = String(item._id) === String(activeCategory);
+
+      return (
+        <TouchableOpacity
+          style={styles.tab}
+          onPress={() => onSelectCategory?.(item._id)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, active && styles.tabTextActive]}>
+            {item.category}
+          </Text>
+
+          <View
+            style={[
+              styles.tabUnderline,
+              !active && styles.tabUnderlineHidden,
+            ]}
+          />
+        </TouchableOpacity>
+      );
+    }}
+  />
+
+  <TouchableOpacity
+    style={styles.addItemButton}
+    onPress={() => onAddItem?.()}
+    activeOpacity={0.8}
+  >
+    <Feather name="plus" size={18} color="#FFFFFF" />
+  </TouchableOpacity>
+</View>
+
 
       {products.length === 0 ? (
         <View style={styles.emptyState}>
@@ -165,11 +223,7 @@ export default function OrderPane({ categories = [], activeCategory, onSelectCat
 const styles = StyleSheet.create({
   panel: { flex: 1, backgroundColor: colors.surface, borderRadius: radii.lg, overflow: 'hidden' },
 
-  tabBarWrapper: {
-    height: TAB_BAR_HEIGHT,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+
   tabBarList: {
     flexGrow: 0,
     flexShrink: 0,
@@ -257,4 +311,53 @@ priceText: {
     paddingTop: GRID_PADDING_TOP,
     paddingBottom: GRID_PADDING_H,
   },
+  
+addItemButton: {
+  height: 36,
+  paddingHorizontal: 12,
+  borderRadius: 8,
+  backgroundColor: colors.primary,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  marginRight: 10,
+  alignSelf: "center",
+},
+
+addItemButtonText: {
+  color: "#FFFFFF",
+  fontSize: 15,
+  fontWeight: "700",
+},
+tabBarWrapper: {
+  minHeight: TAB_BAR_HEIGHT,
+  flexDirection: "row",
+  alignItems: "center",
+  borderBottomWidth: 1,
+  borderBottomColor: colors.border,
+},
+sizeRibbon: {
+  position: "absolute",
+  top: 8,
+  left: 0,
+  maxWidth: "70%",
+  backgroundColor: colors.primary,
+  paddingLeft: 8,
+  paddingRight: 12,
+  paddingVertical: 3,
+  borderTopRightRadius: 6,
+  borderBottomRightRadius: 6,
+  elevation: 3,
+  shadowColor: "#000",
+  shadowOpacity: 0.25,
+  shadowRadius: 2,
+  shadowOffset: { width: 0, height: 1 },
+},
+
+sizeRibbonText: {
+  color: "#FFFFFF",
+  fontSize: 14,
+  fontWeight: "700",
+},
 });

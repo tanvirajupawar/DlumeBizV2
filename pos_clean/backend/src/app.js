@@ -10,6 +10,8 @@ import invoiceRoutes from "./routes/invoice.routes.js";
 import customerAccountRoutes from "./routes/customer_account.routes.js";
 import customerLedgerRoutes from "./routes/customer_ledger.routes.js";
 import customerReturnRoutes from "./routes/customer_return.routes.js";
+import productRoutes from "./routes/product.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
 import cors from "cors";
 
 const app = express();
@@ -41,6 +43,8 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/customer-accounts", customerAccountRoutes);
 app.use("/api/customer-ledger", customerLedgerRoutes);
 app.use("/api/customer-returns", customerReturnRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/categories", categoryRoutes);
 
 
 

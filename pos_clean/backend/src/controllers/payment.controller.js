@@ -9,9 +9,11 @@ import CustomerReturnAllocation from "../models/customer_return_allocation.model
 import mongoose from "mongoose";
 
 export const createPayment = async (req, res) => {
+  let session = null;
+  let transactionStarted = false;
+
   try {
-   const session = await mongoose.startSession();
-let transactionStarted = false;
+    session = await mongoose.startSession();
     const companyId = req.user.company_id;
     const userId = req.user._id;
 
@@ -345,6 +347,26 @@ currentRemaining = Math.max(
   ) / 100
 );
 
+
+
+/* 5A. Validate payment against selected invoice only */
+if (sale) {
+  if (currentRemaining <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "This invoice has no pending balance.",
+    });
+  }
+
+  if (paymentAmount > currentRemaining + 0.000001) {
+    return res.status(400).json({
+      success: false,
+      message: `Payment cannot exceed this invoice's pending amount of ${currentRemaining.toFixed(2)}.`,
+    });
+  }
+}
+
+
 }
 
 // --------------------------------
@@ -414,6 +436,7 @@ if (currentRemaining > 0 && remainingPayment > 0) {
 let openingBalancePayment = 0;
 
 if (
+  !sale &&
   remainingPayment > 0 &&
   customer &&
   company.payment_mode === "CREDIT"
@@ -465,6 +488,7 @@ const remainingOpeningBalance = Math.max(
 // --------------------------------
 
 if (
+  !sale &&
   remainingPayment > 0 &&
   customer &&
   company.payment_mode === "CREDIT"
@@ -477,7 +501,7 @@ const previousSales = await Sale.find({
     : {}),
 })
   .session(session)
-  .sort({ invoice_date: 1, createdAt: 1 })
+  .sort({ invoice_date: 1, createdAt: 1, _id: 1 })
   .lean();
 
   for (const previousSale of previousSales) {
@@ -701,6 +725,93 @@ const [createdAllocation] = await PaymentAllocation.create(
       createdAllocations.push(createdAllocation);
     }
 
+
+    
+    // --------------------------------
+    // 10A. UPDATE STATUS OF EVERY AFFECTED INVOICE
+    // --------------------------------
+
+    const affectedSaleIds = [
+      ...new Set(
+        allocationPlan.map((item) => String(item.sale_id))
+      ),
+    ];
+
+    for (const affectedSaleId of affectedSaleIds) {
+      const affectedSale = await Sale.findOne({
+        _id: affectedSaleId,
+        company_id: companyId,
+      })
+        .session(session);
+
+      if (!affectedSale) continue;
+
+      // Calculate total payments allocated to this invoice
+      const saleAllocations = await PaymentAllocation.find({
+        company_id: companyId,
+        sale_id: affectedSale._id,
+      })
+        .session(session)
+        .lean();
+
+      const totalPaid = saleAllocations.reduce(
+        (sum, allocation) =>
+          sum + Number(allocation.amount || 0),
+        0
+      );
+
+      // Include returns allocated to this invoice
+      const saleReturnAllocations =
+        await CustomerReturnAllocation.find({
+          company_id: companyId,
+          sale_id: affectedSale._id,
+        })
+          .session(session)
+          .lean();
+
+      const totalReturned = saleReturnAllocations.reduce(
+        (sum, allocation) =>
+          sum + Number(allocation.amount || 0),
+        0
+      );
+
+      const balance = Math.max(
+        0,
+        Math.round(
+          (
+            Number(affectedSale.total_amount || 0) -
+            totalPaid -
+            totalReturned
+          ) * 100
+        ) / 100
+      );
+
+      let invoiceStatus = "UNPAID";
+
+      if (balance <= 0.009) {
+        invoiceStatus = "PAID";
+      } else if (totalPaid > 0) {
+        invoiceStatus = "PARTIAL";
+      }
+
+      // Persist invoice payment details in MongoDB
+      await Sale.updateOne(
+        {
+          _id: affectedSale._id,
+          company_id: companyId,
+        },
+        {
+          $set: {
+            paid_amount: Math.round(totalPaid * 100) / 100,
+            balance_amount: balance,
+            status: invoiceStatus,
+          },
+        },
+        { session }
+      );
+    }
+
+
     // --------------------------------
 // 11. CREATE CUSTOMER PAYMENT LEDGER
 // --------------------------------
@@ -764,6 +875,11 @@ if (sale) {
     Number(currentPaymentAllocation?.amount || 0);
 
 
+    newPaidAmount = Math.round(
+  (Number(currentAlreadyPaid || 0) + currentPaymentAmount) * 100
+) / 100;
+
+
 const currentReturnAllocationsAfterPayment =
   await CustomerReturnAllocation.find({
     company_id: companyId,
@@ -807,7 +923,7 @@ newRemainingAmount = Math.max(
 // --------------------------------
 
 await session.commitTransaction();
-await session.endSession();
+transactionStarted = false;
 
 return res.status(201).json({
   success: true,
@@ -897,25 +1013,43 @@ status,
 } catch (error) {
   console.error("❌ Create payment error:", error);
 
-  if (transactionStarted) {
+  if (session && transactionStarted) {
     try {
-      await session.abortTransaction();
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
     } catch (abortError) {
       console.error("❌ Transaction abort error:", abortError);
     }
   }
 
-  try {
-    await session.endSession();
-  } catch (sessionError) {
-    console.error("❌ Session end error:", sessionError);
-  }
+  const isTransientTransactionError =
+    error?.hasErrorLabel?.("TransientTransactionError") ||
+    error?.code === 112;
 
-  return res.status(500).json({
+  return res.status(isTransientTransactionError ? 409 : 500).json({
     success: false,
-    message: "Failed to create payment",
+    message: isTransientTransactionError
+      ? "Payment could not be completed because another operation updated the account. Please verify the payment history before retrying."
+      : "Failed to create payment",
     error: error.message,
   });
+} finally {
+  if (session) {
+    try {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+    } catch (abortError) {
+      console.error("❌ Final transaction cleanup error:", abortError);
+    }
+
+    try {
+      await session.endSession();
+    } catch (sessionError) {
+      console.error("❌ Session end error:", sessionError);
+    }
+  }
 }
 };
 

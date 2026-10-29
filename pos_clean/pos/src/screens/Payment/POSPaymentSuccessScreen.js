@@ -30,18 +30,13 @@ const PAYMENT_ICONS = {
 const ACCENT = "#16A34A";
 const ACCENT_DARK = "#0F3D27";
 const AUTO_NAVIGATE_DELAY = 60000;
-export default function POSReturnSuccessScreen({ route, navigation }) {
-
-const {
-  returnNo = "",
-  amount = 0,
-  outstanding = 0,
-  customerName = "Customer",
-  paymentMethod = "cash",
-  receipt = null,
-  saleCompleted = null,
-} = route.params || {};
-
+export default function POSPaymentSuccessScreen({ route, navigation }) {
+  const {
+    amount = 0,
+    paymentMethod,
+    saleCompleted = null,
+    receipt = null,
+  } = route.params || {};
 
   // ── Print state ──────────────────────────────────────────────────────────
   // idle -> printing -> done | error. Tapping again from "done" or "error"
@@ -98,9 +93,6 @@ const {
 
     setPrintState("printing");
     try {
-      console.log("INITIAL PRINT RECEIPT:", JSON.stringify(receipt, null, 2));
-console.log("TRANSPORTATION:", receipt?.transportationDetails);
-console.log("TRANSPORTATION SNAKE CASE:", receipt?.transportation_details);
       const outcome = await printReceipt(receipt);
       if (outcome?.success) {
         setPrintState("done");

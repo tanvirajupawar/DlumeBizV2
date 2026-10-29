@@ -175,7 +175,7 @@ const closeSearch = () => {
     </Pressable>
   )
 )}
-{!hideScanner && (
+{/* {!hideScanner && (
   <Pressable
     onPress={onScanPress}
     style={styles.iconBtn}
@@ -188,7 +188,7 @@ const closeSearch = () => {
       color={COLORS.textOnDark}
     />
   </Pressable>
-)}
+)} */}
 
           </View>
 

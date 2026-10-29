@@ -22,25 +22,54 @@ const saleItemSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Snapshot of the product/item name at the time of sale
-    product_name: {
-      type: String,
-      default: "",
-      trim: true,
-    },
+// Snapshot of the product/item name at the time of sale
+product_name: {
+  type: String,
+  default: "",
+  trim: true,
+},
 
-    // Used especially for calculator/manual items
-    description: {
-      type: String,
-      default: "",
-      trim: true,
-    },
+// Product type snapshot at the time of sale
+type: {
+  type: String,
+  default: "",
+  trim: true,
+},
 
-    qty: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+// Product size snapshot at the time of sale
+size: {
+  type: String,
+  default: "",
+  trim: true,
+},
+
+// Used especially for calculator/manual items
+description: {
+  type: String,
+  default: "",
+  trim: true,
+},
+
+// Total quantity = bags × units_per_bag
+qty: {
+  type: Number,
+  required: true,
+  min: 0,
+},
+
+// Number of bags entered in the POS
+bags: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
+
+// Number of units in each bag
+units_per_bag: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
 
     rate: {
       type: Number,

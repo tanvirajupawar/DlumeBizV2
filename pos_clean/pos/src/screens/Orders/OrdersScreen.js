@@ -5,6 +5,7 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+    Pressable,
   SectionList,
   StyleSheet,
   ActivityIndicator,
@@ -20,6 +21,7 @@ import API from "../../api/axios";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 
 import {
   COLORS as colors,
@@ -102,6 +104,15 @@ const getCalendarCells = (monthDate) => {
 
 const money = (n) => Number(n || 0).toFixed(2);
 
+const moneyCompact = (n) => {
+  const value = Number(n || 0);
+  return Number.isFinite(value)
+    ? value.toLocaleString("en-IN", {
+        maximumFractionDigits: 2,
+      })
+    : "0";
+};
+
 const formatDate = (isoDate) => {
   if (!isoDate) return "-";
   const d = new Date(isoDate);
@@ -153,8 +164,8 @@ const mapInvoice = (inv, returnsBySalesId) => {
   const items = (inv.items || []).map((d) => {
     const prod = d.product_id || {};
     const rate = Number(d.price || d.rate || 0);
-    const bags = Number(d.bags || 0);
-    const units = Number(d.units || 0);
+const bags = Number(d.bags || 0);
+const units = Number(d.units_per_bag ?? d.units ?? 0);
 
     let qty;
     if (bags > 0 && units > 0) qty = bags * units;
@@ -193,11 +204,38 @@ const mapInvoice = (inv, returnsBySalesId) => {
           d.item_name ||
           "",
 
-      type: isCalculatorItem
-        ? ""
-        : prod.type || prod.item_type || d.item_type || d.type || "",
 
-      size: prod.size || d.size || d.Size || "",
+type: isCalculatorItem
+  ? ""
+  : (
+      prod.type ||
+      prod.product_type ||
+      prod.productType ||
+      prod.item_type ||
+      d.type ||
+      d.product_type ||
+      d.productType ||
+      d.item_type ||
+      ""
+    ),
+
+size: isCalculatorItem
+  ? ""
+  : (
+      prod.size ||
+      prod.product_size ||
+      prod.productSize ||
+      prod.size_name ||
+      prod.variant_size ||
+      d.size ||
+      d.Size ||
+      d.product_size ||
+      d.productSize ||
+      d.size_name ||
+      d.variant_size ||
+      ""
+    ),
+
       hsn: d.hsn || prod.hsn || "",
 
       description:
@@ -351,10 +389,28 @@ const mapReturnRecord = (ret) => {
     amount: Number(item.amount || 0),
   }));
 
-  return {
-    id: `return-${ret._id}`,
-    type: "return",
-    returnNo: ret.return_no || "-",
+return {
+  id: `return-${ret._id}`,
+  type: "return",
+
+  customer_id:
+    (ret.customer_id && typeof ret.customer_id === "object"
+      ? ret.customer_id._id
+      : ret.customer_id) ||
+    (ret.client_id && typeof ret.client_id === "object"
+      ? ret.client_id._id
+      : ret.client_id) ||
+    "",
+
+  customerNumber:
+    customer.contact_no_1 ||
+    customer.mobile ||
+    customer.phone ||
+    ret.customer_mobile ||
+    ret.customer_number ||
+    "",
+
+  returnNo: ret.return_no || "-",
     invoiceNo: ret.return_no || "-",
     salesId:
       (ret.sales_id && ret.sales_id._id) ||
@@ -470,10 +526,16 @@ amountReceived: order.paidAmount,
       it.product ||
       "",
 
-    qty: it.qty,
-    price: it.rate,
-    rate: it.rate,
-    amount: it.amount,
+// Item details needed by ReceiptFormatter.java
+type: it.type || it.product_type || it.productType || it.item_type || "",
+size: it.size || it.product_size || it.productSize || it.size_name || it.variant_size || "",
+bags: Number(it.bags || it.bag_qty || 0),
+units_per_bag: Number(it.units_per_bag || it.unitsPerBag || it.units || 0),
+
+qty: it.qty,
+price: it.rate,
+rate: it.rate,
+amount: it.amount,
 
     description: it.description || "",
     desc: it.description || "",
@@ -523,36 +585,46 @@ const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress
 
 // ─── More-menu modal ──────────────────────────────────────────────────────
 
+
 function MoreMenuModal({
   visible,
   onClose,
   onRefund,
   onDelete,
-  hideRefund = false,
+  onPay,
+  onAccount,
+payDisabled = false,
+deleteDisabled = false,
+hideRefund = false,
 }) {
   return (
-<Modal
-  visible={visible}
-  transparent
-  animationType="fade"
-  onRequestClose={onClose}
->
-  <View style={styles.moreMenuOverlay}>
-    <TouchableOpacity
-      style={StyleSheet.absoluteFillObject}
-      activeOpacity={1}
-      onPress={onClose}
-    />
-
-    <View style={styles.moreMenuSheet}>
-      <View style={styles.moreMenuHandle} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      {/* Tapping the dark area closes the modal */}
+      <TouchableOpacity
+        style={styles.moreMenuOverlay}
+        activeOpacity={1}
+        onPress={onClose}
+      >
+        {/* Tapping inside the menu must NOT close it */}
+        <TouchableOpacity
+          style={styles.moreMenuSheet}
+          activeOpacity={1}
+          onPress={() => {}}
+        >
+          <View style={styles.moreMenuHandle} />
 
           {!hideRefund && (
             <TouchableOpacity
               style={styles.moreMenuItem}
               onPress={() => {
                 onClose();
-                onRefund();
+                onRefund?.();
               }}
             >
               <View style={styles.moreMenuIconWrap}>
@@ -562,56 +634,169 @@ function MoreMenuModal({
                   color={colors.textPrimary}
                 />
               </View>
-
               <Text style={styles.moreMenuItemText}>Refund</Text>
             </TouchableOpacity>
           )}
 
+       
+        <TouchableOpacity
+  style={[
+    styles.moreMenuItem,
+    deleteDisabled && { opacity: 0.4 },
+  ]}
+  disabled={deleteDisabled}
+  onPress={() => {
+    onClose();
+    onDelete?.();
+  }}
+>
+            <View
+              style={[
+                styles.moreMenuIconWrap,
+                { backgroundColor: "#FEF2F2" },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="trash-can-outline"
+                size={22}
+                color="#DC2626"
+              />
+            </View>
+            <Text
+              style={[styles.moreMenuItemText, { color: "#DC2626" }]}
+            >
+              Delete Invoice
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.moreMenuItem,
+              payDisabled && { opacity: 0.45 },
+            ]}
+            disabled={payDisabled}
+            onPress={() => {
+              onClose();
+              onPay?.();
+            }}
+          >
+            <View
+              style={[
+                styles.moreMenuIconWrap,
+                {
+                  backgroundColor: payDisabled
+                    ? "#F3F4F6"
+                    : "#DCFCE7",
+                },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="cash-multiple"
+                size={22}
+                color={payDisabled ? "#9CA3AF" : "#16A34A"}
+              />
+            </View>
+            <Text
+              style={[
+                styles.moreMenuItemText,
+                payDisabled && { color: "#9CA3AF" },
+              ]}
+            >
+              Pay
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.moreMenuItem}
-            onPress={() => { onClose(); onDelete(); }}
+            onPress={() => {
+              onClose();
+              onAccount?.();
+            }}
           >
-            <View style={[styles.moreMenuIconWrap, { backgroundColor: "#FEF2F2" }]}>
-              <MaterialCommunityIcons name="trash-can-outline" size={22} color="#DC2626" />
+            <View
+              style={[
+                styles.moreMenuIconWrap,
+                { backgroundColor: "#DBEAFE" },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="account-circle-outline"
+                size={22}
+                color="#2563EB"
+              />
             </View>
-            <Text style={[styles.moreMenuItemText, { color: "#DC2626" }]}>Delete Invoice</Text>
+            <Text style={styles.moreMenuItemText}>Account</Text>
           </TouchableOpacity>
-        </View>
-  </View>
-</Modal>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
   );
 }
 
+
 // ─── Item table (mirrors web InvoiceDetailPanel) ──────────────────────────
 
-function ItemTable({ items }) {
+function ItemTable({ items, isCalculatorOrder = false }) {
+  const showBagsUnits = !isCalculatorOrder;
+
   const totalQty = (items || []).reduce(
     (total, item) => total + Number(item.qty || 0),
     0
   );
 
-  
   const totalAmt = (items || []).reduce(
     (total, item) => total + Number(item.amount || 0),
     0
   );
 
 
+
   return (
     <View>
       {/* Header */}
-      <View style={styles.itHeader}>
-        <Text style={[styles.itHeaderCell, styles.itColItem]}>Item</Text>
-        <Text style={[styles.itHeaderCell, styles.itColDesc]}>Desc</Text>
-        <Text style={[styles.itHeaderCell, styles.itColSize]}>Size</Text>
-        {/* Hidden per request — keep for later, just don't render.
-        <Text style={[styles.itHeaderCell, styles.itColNum]}>Bags</Text>
-        <Text style={[styles.itHeaderCell, styles.itColNum]}>Units</Text>
-        */}
-        <Text style={[styles.itHeaderCell, styles.itColNum]}>Qty</Text>
-        <Text style={[styles.itHeaderCell, styles.itColPrice]}>Price</Text>
-        <Text style={[styles.itHeaderCell, styles.itColTotal]}>Total</Text>
-      </View>
+<View style={styles.itHeader}>
+  <View style={styles.itColItem}>
+    <Text style={styles.itHeaderCell}>Item</Text>
+  </View>
+
+  <View style={styles.itColType}>
+    <Text style={styles.itHeaderCell}>Type</Text>
+  </View>
+
+  <View style={styles.itColDesc}>
+    <Text style={styles.itHeaderCell}>Desc</Text>
+  </View>
+
+  <View style={styles.itColSize}>
+    <Text style={styles.itHeaderCell}>Size</Text>
+  </View>
+
+  {showBagsUnits && (
+    <View style={styles.itColBagsUnits}>
+      <Text style={[styles.itHeaderCell, styles.itCenter]}>
+        B × U
+      </Text>
+    </View>
+  )}
+
+  <View style={styles.itColNum}>
+    <Text style={[styles.itHeaderCell, styles.itCenter]}>
+      Qty
+    </Text>
+  </View>
+
+  <View style={styles.itColPrice}>
+    <Text style={[styles.itHeaderCell, styles.itRight]}>
+      Price
+    </Text>
+  </View>
+
+  <View style={styles.itColTotal}>
+    <Text style={[styles.itHeaderCell, styles.itRight]}>
+      Total
+    </Text>
+  </View>
+</View>
 
       {items.length === 0 ? (
         <View style={styles.itEmptyRow}>
@@ -627,58 +812,75 @@ function ItemTable({ items }) {
               idx === items.length - 1 && styles.itRowLast,
             ]}
           >
-            <View style={styles.itColItem}>
-              <Text style={styles.itItemName} numberOfLines={2}>
-                {item.name}
-              </Text>
+        <View style={styles.itColItem}>
+  <Text style={styles.itItemName}>
+    {item.name}
+  </Text>
+</View>
 
-              {item.type && !item.isCalculatorItem ? (
-                <Text style={styles.itItemType} numberOfLines={1}>
-                  {item.type}
-                </Text>
-              ) : null}
-            </View>
+<View style={styles.itColType}>
+  <Text style={[styles.itCell, styles.itMuted]}>
+    {item.type || "—"}
+  </Text>
+</View>
 
-            <Text style={[styles.itCell, styles.itColDesc, styles.itMuted]} numberOfLines={2}>
-              {item.description || ""}
-            </Text>
+<View style={styles.itColDesc}>
+  <Text style={[styles.itCell, styles.itMuted]}>
+    {item.description || "—"}
+  </Text>
+</View>
 
-            <Text style={[styles.itCell, styles.itColSize, styles.itMuted]} numberOfLines={1}>
-              {item.size || "—"}
-            </Text>
+<View style={styles.itColSize}>
+  <Text style={[styles.itCell, styles.itMuted]}>
+    {item.size || "—"}
+  </Text>
+</View>
 
-            {/* Hidden per request — keep for later, just don't render.
-            <Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
-              {item.bags || 1}
-            </Text>
+      {showBagsUnits && (
+  <View style={styles.itColBagsUnits}>
+    <Text
+      style={[styles.itCell, styles.itCenter]}
+      numberOfLines={1}
+    >
+      {item.bags > 0 && item.units > 0
+        ? `${item.bags} × ${item.units}`
+        : "—"}
+    </Text>
+  </View>
+)}
 
-            <Text style={[styles.itCell, styles.itColNum, styles.itCenter]}>
-              {item.units || 1}
-            </Text>
-            */}
+<View style={styles.itColNum}>
+  <Text style={[styles.itCell, styles.itCenter, styles.itBold]}>
+    {item.qty}
+  </Text>
+</View>
 
-            <Text style={[styles.itCell, styles.itColNum, styles.itCenter, styles.itBold]}>
-              {item.qty}
-            </Text>
+<View style={styles.itColPrice}>
+  <Text style={[styles.itCell, styles.itRight, styles.itMuted]}>
+    ₹{moneyCompact(item.rate)}
+  </Text>
+</View>
 
-            <Text style={[styles.itCell, styles.itColPrice, styles.itRight, styles.itMuted]}>
-              {"\u20B9"}{money(item.rate)}
-            </Text>
-
-            <Text style={[styles.itColTotal, styles.itRight, styles.itAmountText]}>
-              {"\u20B9"}{money(item.amount)}
-            </Text>
+<View style={styles.itColTotal}>
+  <Text style={[styles.itAmountText, styles.itRight]}>
+    ₹{moneyCompact(item.amount)}
+  </Text>
+</View>
           </View>
         ))
       )}
          
 <View style={styles.itTotalQtyRow}>
-  <View style={styles.itColItem}>
-    <Text style={styles.itTotalQtyLabel}>Total</Text>
-  </View>
 
-  <View style={styles.itColDesc} />
-  <View style={styles.itColSize} />
+<View style={styles.itColItem}>
+  <Text style={styles.itTotalQtyLabel}>Total</Text>
+</View>
+
+<View style={styles.itColType} />
+<View style={styles.itColDesc} />
+<View style={styles.itColSize} />
+
+{showBagsUnits && <View style={styles.itColBagsUnits} />}
 
   <Text
     style={[
@@ -694,7 +896,7 @@ function ItemTable({ items }) {
   <View style={styles.itColPrice} />
 
   <Text style={[styles.itColTotal, styles.itRight, styles.itTotalQtyValue]}>
-    ₹{money(totalAmt)}
+₹{moneyCompact(totalAmt)}
   </Text>
 </View>
 
@@ -987,8 +1189,16 @@ function RefundItemsModal({ visible, order, returns, onClose, onConfirm, submitt
 
 // ─── Order detail panel ───────────────────────────────────────────────────
 
-function OrderDetail({ order, payments, paymentsLoading, paymentsError, onRetryPayments, returns, onRefundSuccess }) {
-  const [tab, setTab] = useState("overview");
+function OrderDetail({
+  order,
+  payments,
+  paymentsLoading,
+  paymentsError,
+  onRetryPayments,
+  returns,
+  onRefundSuccess,
+  onAccount,
+}) {  const [tab, setTab] = useState("overview");
   const isReturnOrder = order?.type === "return";
 
 useEffect(() => {
@@ -999,6 +1209,8 @@ useEffect(() => {
   const [refundModalVisible, setRefundModalVisible] = useState(false);
   const [refunding, setRefunding] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const { company, user } = useAuth();
 
   if (!order) {
@@ -1255,8 +1467,16 @@ const handlePrint = async () => {
     }
   };
 
-  const handleDelete = () => {
+const handleDelete = () => {
+  if (Number(order.paidAmount || 0) > 0) {
     Alert.alert(
+      "Cannot Delete Invoice",
+      "This invoice has received a payment and cannot be deleted."
+    );
+    return;
+  }
+
+  Alert.alert(
       "Delete Invoice",
       `Are you sure you want to delete ${order.invoiceNo}?`,
       [
@@ -1281,12 +1501,22 @@ const handlePrint = async () => {
               Alert.alert("Success", "Invoice deleted successfully.");
 
               onRefundSuccess?.(); // Refresh orders list
-            } catch (err) {
-              Alert.alert(
-                "Delete Failed",
-                err?.response?.data?.message || "Unable to delete invoice."
-              );
-            }
+          } catch (err) {
+  console.log("DELETE INVOICE ERROR:", {
+    status: err?.response?.status,
+    data: err?.response?.data,
+    message: err?.message,
+    invoiceId: order?.id,
+    invoiceNo: order?.invoiceNo,
+  });
+
+  Alert.alert(
+    "Delete Failed",
+    err?.response?.data?.message ||
+      err?.message ||
+      "Unable to delete invoice."
+  );
+}
           },
         },
       ]
@@ -1385,7 +1615,10 @@ const handlePrint = async () => {
             {/* ── Item Summary (new table) ── */}
             <Text style={styles.sectionHeading}>Item Summary</Text>
             <View style={styles.itemTableCard}>
-              <ItemTable items={order.items} />
+           <ItemTable
+  items={order.items}
+  isCalculatorOrder={isCalculatorOrder}
+/>
             </View>
 
             {/* Sales Summary */}
@@ -1565,13 +1798,32 @@ const handlePrint = async () => {
         </TouchableOpacity>
       </View>
 
-      <MoreMenuModal
-        visible={moreMenuVisible}
-        onClose={() => setMoreMenuVisible(false)}
-        onRefund={handleOpenRefundModal}
-        onDelete={handleDelete}
-      hideRefund={isReturnOrder || isCalculatorOrder}
-      />
+<MoreMenuModal
+  visible={moreMenuVisible}
+  onClose={() => setMoreMenuVisible(false)}
+  onRefund={handleOpenRefundModal}
+  onDelete={handleDelete}
+  onPay={() => setPaymentModalVisible(true)}
+ onAccount={() => {
+  if (!order.customer_id) {
+    Alert.alert(
+      "Customer unavailable",
+      "This return has no linked customer account."
+    );
+    return;
+  }
+
+  onAccount?.(order.customer_id, {
+    _id: order.customer_id,
+    customer_name: order.customer,
+    company_name: order.companyName,
+    contact_no_1: order.customerNumber,
+  });
+}}
+payDisabled={String(order.status || "").toLowerCase() === "paid"}
+deleteDisabled={Number(order.paidAmount || 0) > 0}
+hideRefund={isReturnOrder || isCalculatorOrder}
+/>
 
       <RefundItemsModal
         visible={refundModalVisible}
@@ -1581,6 +1833,60 @@ const handlePrint = async () => {
         onConfirm={handleConfirmRefund}
         submitting={refunding}
       />
+
+      <CustomerPaymentModal
+  visible={paymentModalVisible}
+  customer={{
+    _id: order.customer_id,
+    customer_name: order.customer,
+    company_name: order.companyName,
+    outstanding: order.pendingAmount,
+  }}
+  onClose={() => setPaymentModalVisible(false)}
+loading={paymentSubmitting}
+onSubmit={async ({ amount, method, date, remarks }) => {
+  try {
+    setPaymentSubmitting(true);
+
+    const token = await getToken();
+    const headers = token
+      ? { Authorization: `Bearer ${token}` }
+      : {};
+
+    await API.post(
+      "/payments",
+      {
+        sale_id: order.id,
+        amount: Number(amount),
+        payment_method: method,
+        payment_date: date,
+        reference_no: "",
+        remarks: typeof remarks === "string" ? remarks.trim() : "",
+      },
+      { headers }
+    );
+
+    setPaymentModalVisible(false);
+
+    Alert.alert(
+      "Payment Received",
+      `₹${Number(amount).toFixed(2)} received successfully.`
+    );
+
+await Promise.all([
+  onRefundSuccess?.({ silent: true }),
+  onRetryPayments?.({ silent: true }),
+]);
+  } catch (error) {
+    Alert.alert(
+      "Payment Failed",
+      error?.response?.data?.message || "Unable to receive payment."
+    );
+  } finally {
+    setPaymentSubmitting(false);
+  }
+}}
+/>
     </View>
   );
 }
@@ -1602,8 +1908,11 @@ const CACHE_KEYS = {
 // once, and scrolling pulls in more a chunk at a time.
 const PAGE_SIZE = 40;
 
-export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {} }) {
-  // ── Order list date filter (null = show all dates) ─────────────────
+export default function OrdersScreen({
+  onBack = () => {},
+  onMenuPress = () => {},
+  onAccount,
+}) {  // ── Order list date filter (null = show all dates) ─────────────────
   // Completely independent from the Daily Sales Summary date below.
   const [listDate, setListDate] = useState(() => new Date());
 
@@ -1702,6 +2011,21 @@ export default function OrdersScreen({ onBack = () => {}, onMenuPress = () => {}
         : Array.isArray(returnsRes.data)
           ? returnsRes.data
           : [];
+
+// TEMP DEBUG: inspect actual product fields returned by /sales
+const debugSale = salesData.find(
+  (sale) => Array.isArray(sale.items) && sale.items.length > 0
+);
+
+console.log(
+  "ORDERS API ITEM DEBUG:",
+  JSON.stringify(debugSale?.items?.[0] ?? null, null, 2)
+);
+
+console.log(
+  "ORDERS API PRODUCT DEBUG:",
+  JSON.stringify(debugSale?.items?.[0]?.product_id ?? null, null, 2)
+);
 
       const mappedReturns = returnsData.map(mapReturnRecord);
 
@@ -2260,15 +2584,16 @@ const activeOrder = useMemo(() => {
 
         {/* Right pane */}
         <View style={styles.detailPane}>
-          <OrderDetail
-            order={activeOrder}
-            payments={payments}
-            paymentsLoading={paymentsLoading}
-            paymentsError={paymentsError}
-            onRetryPayments={fetchPayments}
-            returns={returns}
-            onRefundSuccess={fetchOrders}
-          />
+ <OrderDetail
+  order={activeOrder}
+  payments={payments}
+  paymentsLoading={paymentsLoading}
+  paymentsError={paymentsError}
+  onRetryPayments={fetchPayments}
+  returns={returns}
+  onRefundSuccess={fetchOrders}
+  onAccount={onAccount}
+/>
         </View>
       </View>
 
@@ -2661,79 +2986,144 @@ detailCustomerName: {
   },
 
   // ── Item table internals ────────────────────────────────────────────
-  itHeader: {
-    flexDirection: "row",
-    backgroundColor: colors.primarySoft || "#EEF2FF",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  itHeaderCell: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-  },
-  itRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-    backgroundColor: "#F8FAFC",
-  },
-  itRowAlt: { backgroundColor: "#FFFFFF" },
-  itRowLast: { borderBottomWidth: 0 },
-  itEmptyRow: { paddingVertical: 24, alignItems: "center" },
-  itEmptyText: { fontSize: 15, color: colors.textMuted, fontStyle: "italic" },
-  itCell: { fontSize: 15, color: colors.textPrimary },
-  itRight: { textAlign: "right" },
-  itCenter: { textAlign: "center" },
-  itBold: { fontWeight: "700" },
-  itMuted: { color: colors.textMuted },
-  itItemName: { fontSize: 17, fontWeight: "700", color: colors.primary, lineHeight: 20 },
-  itItemType: { fontSize: 16, color: colors.textMuted, marginTop: 2 },
-  // Item Summary "Total" column amount — bumped up from the shared itCell
-  // size (15) so the per-item total reads clearly at a glance.
+
+
+itHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  backgroundColor: colors.primarySoft || "#EEF2FF",
+  paddingVertical: 9,
+  paddingHorizontal: 8,
+  borderBottomWidth: 1,
+  borderBottomColor: colors.divider,
+},
+
+itHeaderCell: {
+  fontSize: 12,
+  fontWeight: "600",
+  color: colors.textMuted,
+  textTransform: "uppercase",
+  letterSpacing: 0.1,
+},
+
+itRow: {
+  flexDirection: "row",
+  alignItems: "stretch",
+  paddingVertical: 10,
+  paddingHorizontal: 8,
+  borderBottomWidth: 1,
+  borderBottomColor: colors.divider,
+  backgroundColor: "#F8FAFC",
+},
+
+itRowAlt: { backgroundColor: "#FFFFFF" },
+itRowLast: { borderBottomWidth: 0 },
+
+itEmptyRow: {
+  paddingVertical: 18,
+  alignItems: "center",
+},
+
+itEmptyText: {
+  fontSize: 13,
+  color: colors.textMuted,
+  fontStyle: "italic",
+},
+
+itCell: {
+  fontSize: 12.5,
+  fontWeight: "400",
+  color: colors.textPrimary,
+  lineHeight: 18,
+},
+
+itRight: { textAlign: "right" },
+itCenter: { textAlign: "center" },
+itBold: { fontWeight: "500" },
+itMuted: { color: colors.textMuted },
+
+itItemName: {
+  fontSize: 13,
+  fontWeight: "500",
+  color: colors.primary,
+  lineHeight: 18,
+  flexShrink: 1,
+},
+
+itItemType: {
+  fontSize: 12,
+  fontWeight: "400",
+  color: colors.textMuted,
+  marginTop: 1,
+  lineHeight: 16,
+},
 
 itAmountText: {
-  fontSize: 14,
-  fontWeight: "400",
+  fontSize: 12.5,
+  fontWeight: "500",
+  color: colors.textPrimary,
+  lineHeight: 18,
+},
+
+itColItem: {
+  flex: 2.0,
+  minWidth: 0,
+},
+itColType: {
+  flex: 1.15,
+  minWidth: 0,
+},
+itColDesc: {
+  flex: 1.5,
+  minWidth: 0,
+},
+itColSize: {
+  flex: 0.75,
+  minWidth: 0,
+},
+itColBagsUnits: {
+  flex: 1.0,
+  minWidth: 0,
+},
+itColNum: {
+  flex: 0.65,
+  minWidth: 0,
+  textAlign: "center",
+},
+itColPrice: {
+  flex: 1.1,
+  minWidth: 0,
+  textAlign: "right",
+},
+itColTotal: {
+  flex: 1.1,
+  minWidth: 0,
+  textAlign: "right",
+},
+
+itTotalQtyRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingVertical: 10,
+  paddingHorizontal: 8,
+  backgroundColor: "#F0F4F8",
+  borderTopWidth: 1,
+  borderTopColor: colors.divider,
+},
+
+itTotalQtyLabel: {
+  fontSize: 13,
+  fontWeight: "600",
   color: colors.textPrimary,
 },
 
-  // flex column ratios — sum = ~10 units wide
-  itColItem:  { flex: 2.5 },          // Item name + type
-  itColDesc:  { flex: 1.5 },          // Description
-  itColSize:  { flex: 0.8 },          // Size
-  itColNum:   { flex: 0.6 },          // Bags / Units / Qty
-  itColPrice: { flex: 1.1, textAlign: "right" },  // Unit Price
-  itColTotal: { flex: 1.1, textAlign: "right" },  // Total
+itTotalQtyValue: {
+  fontSize: 13,
+  fontWeight: "600",
+  color: colors.primary,
+},
 
-    itTotalQtyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: "#F0F4F8",
-    borderTopWidth: 1.5,
-    borderTopColor: colors.divider,
-  },
 
-  itTotalQtyLabel: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.textPrimary,
-  },
-
-  itTotalQtyValue: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: colors.primary,
-  },
 
   // grand total strip
   itGrandTotal: {

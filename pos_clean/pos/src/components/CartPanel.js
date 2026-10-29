@@ -89,6 +89,9 @@ function CartEmpty() {
 function CartRow({ item, onPress, onLongPress }) {
   const isCalculatorItem = item.isCalculatorItem === true;
 
+    const hasBreakdown =
+    !isCalculatorItem && item.bags != null && Number(item.units_per_bag) > 0;
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -101,25 +104,26 @@ function CartRow({ item, onPress, onLongPress }) {
     >
       <View style={{ flex: 1 }}>
 
-        {/* ITEM NAME */}
+              {/* ITEM NAME */}
         {isCalculatorItem ? (
-          <Text
-            numberOfLines={1}
-            style={styles.rowName}
-          >
+          <Text numberOfLines={1} style={styles.rowName}>
             {item.qty} × {formatCalculatorPrice(item.price)}
           </Text>
         ) : (
-          <Text
-            numberOfLines={1}
-            style={styles.rowName}
-          >
-            {item.name}{" "}
-            <Text style={styles.rowQty}>
-              x {item.qty}
-            </Text>
+          <Text numberOfLines={1} style={styles.rowName}>
+            {item.name}
+            {!hasBreakdown ? (
+              <Text style={styles.rowQty}> x {item.qty}</Text>
+            ) : null}
           </Text>
         )}
+
+        {/* BAGS × UNITS BREAKDOWN - only for items added via quick popup */}
+        {hasBreakdown ? (
+          <Text style={styles.rowBreakdown}>
+            {item.bags} {Number(item.bags) === 1 ? "bag" : "bags"} × {item.units_per_bag} units = {item.qty}
+          </Text>
+        ) : null}
 
         {/* RATE - NORMAL ITEMS ONLY */}
         {!isCalculatorItem ? (
@@ -184,6 +188,8 @@ export default function CartPanel({
   customers = [],
   selectedCustomer = null,
   onSelectCustomer,
+    saleDateLabel = null,
+  onDatePress,
 grandTotal = 0,
 transportationDetails = "",
 checkoutDisabled = false,
@@ -236,6 +242,35 @@ const itemLabel = item.isCalculatorItem
               RETURN MODE · items will be returned to the customer
             </Text>
           </View>
+        ) : null}
+
+
+                {onDatePress && !isReturnMode ? (
+          <Pressable
+            onPress={onDatePress}
+            hitSlop={6}
+            style={[styles.dateChip, saleDateLabel && styles.dateChipActive]}
+            testID="cart-date-chip"
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={16}
+              color={saleDateLabel ? "#92400E" : COLORS.blue}
+            />
+            <Text
+              style={[
+                styles.dateChipText,
+                saleDateLabel && styles.dateChipTextActive,
+              ]}
+            >
+              {saleDateLabel || "Today"}
+            </Text>
+            <Ionicons
+              name="chevron-down"
+              size={14}
+              color={saleDateLabel ? "#92400E" : COLORS.blue}
+            />
+          </Pressable>
         ) : null}
 
         <CustomerBar customer={selectedCustomer} onRemove={handleRemoveCustomer} />
@@ -401,6 +436,30 @@ const styles = StyleSheet.create({
     borderColor: "#FCA5A5",
   },
   returnBannerText: { flex: 1, fontSize: 12, fontWeight: "800", color: "#B91C1C" },
+  rowBreakdown: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.blue,
+    marginTop: 4,
+  },
+  dateChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: SPACING.md,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.blue,
+  },
+  dateChipActive: {
+    backgroundColor: "#FEF3C7",
+    borderColor: "#F59E0B",
+  },
+  dateChipText: { fontSize: 14, fontWeight: "700", color: COLORS.blue },
+  dateChipTextActive: { color: "#92400E" },
 });
 
 

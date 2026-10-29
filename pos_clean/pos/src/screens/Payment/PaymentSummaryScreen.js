@@ -47,15 +47,18 @@ export default function PaymentSummaryScreen() {
   const route = useRoute();
   const { user, company } = useAuth();
 
-  const {
-    cartItems = [],
-    customer = null,
-    subtotal = 0,
-    tax = 0,
-    discount = 0,
-    grandTotal = 0,
-    transportationDetails = "",
-  } = route.params || {};
+
+const {
+  cartItems = [],
+  customer = null,
+  subtotal = 0,
+  tax = 0,
+  discount = 0,
+  grandTotal = 0,
+  transportationDetails = "",
+  saleDate = null,
+} = route.params || {};
+
 
   const customerId = customer?._id || customer?.id || null;
   const isWalkIn = !customerId;
@@ -176,22 +179,25 @@ const canPay =
         ? String(currentInvoiceAmount)
         : "";
 
-  const goToCheckout = () => {
-    if (!canPay) return;
 
-    navigation.navigate("Checkout", {
-      cartItems,
-      customer,
-      subtotal,
-      tax,
-      discount: discountValue,
-      discountedGrandTotal,
-      previousOutstanding,
-      totalPayable,
-      paymentAmount: round2(amount),
-      transportationDetails,
-    });
-  };
+const goToCheckout = () => {
+  if (!canPay) return;
+
+  navigation.navigate("Checkout", {
+    cartItems,
+    customer,
+    subtotal,
+    tax,
+    discount: discountValue,
+    discountedGrandTotal,
+    previousOutstanding,
+    totalPayable,
+    paymentAmount: round2(amount),
+    transportationDetails,
+    saleDate: saleDate || new Date().toLocaleDateString("en-CA"),
+  });
+};
+
 
   const saveOrderOnCredit = async () => {
     if (savingOrder) return;
@@ -199,26 +205,26 @@ const canPay =
     try {
       setSavingOrder(true);
 
-      const payload = {
-        customer_id: customerId,
-        source: "POS",
-        sale_mode: "CALCULATOR",
-        subtotal: Number(subtotal) || 0,
-        discount_amount: discountValue,
-        total_amount: discountedGrandTotal,
-        transportation_details: transportationDetails,
-        items: cartItems.map((item) => ({
-          product_id: null,
-          product_name: item.product || item.name || "",
-          description: item.description || "",
-          qty: Number(item.qty) || 0,
-          rate: Number(item.price) || 0,
-          amount: (Number(item.qty) || 0) * (Number(item.price) || 0),
-          unit: item.unit || "PCS",
-          hsn: "",
-          gst_rate: 0,
-        })),
-      };
+const payload = {
+  customer_id: customerId,
+  source: "POS",
+  sale_mode: company?.pos_mode || "PRODUCT",
+  invoice_date: saleDate || new Date().toLocaleDateString("en-CA"),
+
+invoice_date: saleDate || new Date().toISOString().slice(0, 10),
+  subtotal: Number(subtotal) || 0,
+  discount_amount: discountValue,
+  total_amount: discountedGrandTotal,
+  transportation_details: transportationDetails,
+
+  // Keep your existing items mapping unchanged.
+items: cartItems.map((item) => ({
+  ...item,
+  qty: Number(item.qty) || 0,
+  bags: Number(item.bags) || 0,
+  units_per_bag: Number(item.units_per_bag) || 0,
+})),
+};
 
       const response = await createSale(payload);
       const sale = response.data || response;
@@ -233,6 +239,7 @@ const canPay =
           user,
           customer,
           sale,
+          saleDate,
           cartItems,
           paymentMode: "Credit",
           transportationDetails,

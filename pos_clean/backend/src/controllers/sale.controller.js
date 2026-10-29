@@ -5,6 +5,7 @@ import { getNextInvoiceNumber } from "../services/sale.service.js";
 import Customer from "../models/customer.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
+import Product from "../models/product.model.js";
 
 
 export const createSale = async (req, res) => {
@@ -18,7 +19,11 @@ const {
   items,
   discount_amount = 0,
   transportation_details = "",
+  invoice_date,
 } = req.body;
+
+console.log("📅 BACKEND RECEIVED invoice_date:", req.body.invoice_date);
+console.log("📦 BACKEND RECEIVED BODY:", JSON.stringify(req.body, null, 2));
 
     // --------------------------------
     // 1. BASIC VALIDATION
@@ -44,6 +49,23 @@ const {
         message: "At least one sale item is required",
       });
     }
+
+// Validate selected invoice/sale date
+let selectedInvoiceDate = new Date();
+
+if (invoice_date) {
+  const parsedDate = new Date(invoice_date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid invoice date",
+    });
+  }
+
+  // Preserve the selected calendar date using local midnight.
+  selectedInvoiceDate = parsedDate;
+}
 
     // --------------------------------
     // 2. GET COMPANY
@@ -121,6 +143,13 @@ if (normalizedCustomerId) {
     let subtotal = 0;
 
     for (const item of items) {
+
+      console.log("🛍️ BAG DATA RECEIVED:", {
+  product_name: item.product_name,
+  qty: item.qty,
+  bags: item.bags,
+  units_per_bag: item.units_per_bag,
+});
       const qty = Number(item.qty);
       const rate = Number(item.rate);
 
@@ -137,16 +166,28 @@ if (normalizedCustomerId) {
           message: "Item rate cannot be negative",
         });
       }
+let product = null;
 
-      // PRODUCT sale
-      if (sale_mode === "PRODUCT") {
-        if (!item.product_id) {
-          return res.status(400).json({
-            success: false,
-            message: "product_id is required for PRODUCT sale",
-          });
-        }
-      }
+if (sale_mode === "PRODUCT") {
+  if (!item.product_id) {
+    return res.status(400).json({
+      success: false,
+      message: "product_id is required for PRODUCT sale",
+    });
+  }
+
+  product = await Product.findOne({
+    _id: item.product_id,
+    company_id: companyId,
+  }).lean();
+
+  if (!product) {
+    return res.status(404).json({
+      success: false,
+      message: "Product not found",
+    });
+  }
+}
 
       // CALCULATOR sale
       if (sale_mode === "CALCULATOR") {
@@ -164,18 +205,47 @@ if (normalizedCustomerId) {
 
       subtotal += amount;
 
-      preparedItems.push({
-        company_id: companyId,
-        product_id: item.product_id || null,
-        product_name: item.product_name || "",
-        description: item.description || "",
-        qty,
-        rate,
-        amount,
-        unit: item.unit || "",
-        hsn: item.hsn || "",
-        gst_rate: 0,
-      });
+preparedItems.push({
+  company_id: companyId,
+  product_id: item.product_id || null,
+product_name:
+  item.product_name ||
+  item.product ||
+  product?.product ||
+  "",
+type:
+  item.type ||
+  item.product_type ||
+  item.productType ||
+  product?.type ||
+  product?.product_type ||
+  product?.productType ||
+  product?.item_type ||
+  "",
+size:
+  item.size ||
+  item.product_size ||
+  item.productSize ||
+  item.size_name ||
+  item.variant_size ||
+  product?.size ||
+  product?.product_size ||
+  product?.productSize ||
+  product?.size_name ||
+  product?.variant_size ||
+  "",
+description: item.description || "",
+
+  qty,
+  bags: Number(item.bags) || 0,
+  units_per_bag: Number(item.units_per_bag) || 0,
+
+  rate,
+  amount,
+  unit: item.unit || "",
+  hsn: item.hsn || "",
+  gst_rate: 0,
+});
     }
 
     // --------------------------------
@@ -266,7 +336,7 @@ const sale = await Sale.create({
   sale_mode,
 
   invoice_no: invoiceNo,
-  invoice_date: new Date(),
+invoice_date: selectedInvoiceDate,
 
   subtotal,
   discount_amount: discount,
@@ -293,6 +363,32 @@ const sale = await Sale.create({
     }));
 
     await SaleItem.insertMany(saleItems);
+
+
+    // Update stock for PRODUCT sales only.
+if (sale_mode === "PRODUCT") {
+  const StockManagement = (await import(
+    "../models/stock_management.model.js"
+  )).default;
+
+  for (const item of preparedItems) {
+    const stock = await StockManagement.findOne({
+      product_id: item.product_id,
+      company_id: companyId,
+    });
+
+    if (!stock) {
+      throw new Error(
+        `Stock record not found for product ${item.product_id}`
+      );
+    }
+
+    stock.out = Number(stock.out || 0) + item.qty;
+
+    // The stock model recalculates total_stock = in - out.
+    await stock.save();
+  }
+}
 
     // --------------------------------
 // 11. CREATE CUSTOMER LEDGER ENTRY
@@ -326,6 +422,8 @@ if (
 data: {
   sale_id: sale._id,
   invoice_no: sale.invoice_no,
+  invoice_date: sale.invoice_date,
+
   source: sale.source,
   sale_mode: sale.sale_mode,
   customer_id: sale.customer_id,
@@ -393,12 +491,47 @@ export const getSales = async (req, res) => {
     // GET SALE ITEMS
     // --------------------------------
 
-    const saleItems = saleIds.length
-      ? await SaleItem.find({
-          company_id: companyId,
-          sale_id: { $in: saleIds },
-        }).lean()
-      : [];
+  const saleItemsRaw = saleIds.length
+  ? await SaleItem.find({
+      company_id: companyId,
+      sale_id: { $in: saleIds },
+    })
+     .populate("product_id", "product type size")
+      .lean()
+  : [];
+
+const saleItems = saleItemsRaw.map((item) => {
+  const product =
+    item.product_id &&
+    typeof item.product_id === "object"
+      ? item.product_id
+      : null;
+
+  return {
+    ...item,
+
+    // Keep product_id as an ID for the frontend
+    product_id: product?._id || item.product_id || null,
+
+    // Prefer saved snapshots; fall back to the current product
+    type:
+      item.type ||
+      product?.type ||
+      product?.product_type ||
+      product?.productType ||
+      product?.item_type ||
+      "",
+
+    size:
+      item.size ||
+      product?.size ||
+      product?.product_size ||
+      product?.productSize ||
+      product?.size_name ||
+      product?.variant_size ||
+      "",
+  };
+});
 
     // --------------------------------
     // GET PAYMENT ALLOCATIONS
@@ -488,6 +621,154 @@ export const getSales = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch sales",
+      error: error.message,
+    });
+  }
+};
+
+
+
+export const deleteSale = async (req, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const { id } = req.params;
+
+    // Validate invoice ID
+    if (!/^[a-f\d]{24}$/i.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid invoice ID",
+      });
+    }
+
+    // Find invoice belonging to the logged-in company
+    const sale = await Sale.findOne({
+      _id: id,
+      company_id: companyId,
+    });
+
+    if (!sale) {
+      return res.status(404).json({
+        success: false,
+        message: "Invoice not found",
+      });
+    }
+
+    // Do not delete invoices with recorded payments
+const allocations = await PaymentAllocation.find({
+  company_id: companyId,
+  sale_id: sale._id,
+}).lean();
+
+console.log("========== DELETE INVOICE DEBUG ==========");
+console.log("Invoice No:", sale.invoice_no);
+console.log("Sale ID:", sale._id.toString());
+console.log("Company ID:", companyId);
+console.log("Allocations:", JSON.stringify(allocations, null, 2));
+console.log("==========================================");
+
+if (allocations.length > 0) {
+  return res.status(409).json({
+    success: false,
+    message:
+      "This invoice has payment records. Record the appropriate reversal before deleting it.",
+  });
+}
+
+    // Load invoice items
+    const items = await SaleItem.find({
+      company_id: companyId,
+      sale_id: sale._id,
+    }).lean();
+
+    // For PRODUCT sales, prepare stock rollback
+    let stockUpdates = [];
+
+    if (sale.sale_mode === "PRODUCT") {
+      const StockManagement = (
+        await import("../models/stock_management.model.js")
+      ).default;
+
+      const quantitiesByProduct = new Map();
+
+      for (const item of items) {
+        if (!item.product_id) continue;
+
+        const productId = item.product_id.toString();
+
+        quantitiesByProduct.set(
+          productId,
+          (quantitiesByProduct.get(productId) || 0) +
+            Number(item.qty || 0)
+        );
+      }
+
+      // Validate every stock record before changing anything
+      for (const [productId, qty] of quantitiesByProduct) {
+        const stock = await StockManagement.findOne({
+          company_id: companyId,
+          product_id: productId,
+        });
+
+        if (!stock) {
+          return res.status(409).json({
+            success: false,
+            message:
+              `Cannot delete invoice: stock record missing for product ${productId}.`,
+          });
+        }
+
+        if (Number(stock.out || 0) < qty) {
+          return res.status(409).json({
+            success: false,
+            message:
+              `Cannot safely restore stock for product ${productId}. Please check stock records first.`,
+          });
+        }
+
+        stockUpdates.push({ stock, qty });
+      }
+    }
+
+    // Restore stock before removing the invoice
+    for (const { stock, qty } of stockUpdates) {
+      stock.out = Number(stock.out || 0) - qty;
+      await stock.save();
+    }
+
+    // Remove invoice items
+    await SaleItem.deleteMany({
+      company_id: companyId,
+      sale_id: sale._id,
+    });
+
+    // Remove only the ledger entry created for this sale
+    await CustomerLedger.deleteMany({
+      company_id: companyId,
+      sale_id: sale._id,
+      type: "SALE",
+    });
+
+    // Remove invoice
+    await Sale.deleteOne({
+      _id: sale._id,
+      company_id: companyId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Invoice deleted successfully",
+      data: {
+        sale_id: sale._id,
+        invoice_no: sale.invoice_no,
+      },
+    });
+  } catch (error) {
+    console.error("Delete sale error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete invoice",
       error: error.message,
     });
   }

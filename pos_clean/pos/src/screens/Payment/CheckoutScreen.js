@@ -31,18 +31,24 @@ export default function CheckoutScreen() {
   const route = useRoute();
   const { user, company } = useAuth();
 
-  const {
-    cartItems = [],
-    customer = null,
-    subtotal = 0,
-    tax = 0,
-    discount = 0,
-    discountedGrandTotal = 0,
-    previousOutstanding = 0,
-    totalPayable = 0,
-    paymentAmount = 0, // chosen on the Payment Summary screen
-    transportationDetails = "",
-  } = route.params || {};
+const companyConfig = company || user?.company || {};
+const saleMode = String(companyConfig.pos_mode || "").toUpperCase();
+
+
+const {
+  cartItems = [],
+  customer = null,
+  subtotal = 0,
+  tax = 0,
+  discount = 0,
+  discountedGrandTotal = 0,
+  previousOutstanding = 0,
+  totalPayable = 0,
+  paymentAmount = 0,
+  transportationDetails = "",
+  saleDate = null,
+} = route.params || {};
+
 
   const [processingMethod, setProcessingMethod] = useState(null);
 
@@ -51,7 +57,14 @@ export default function CheckoutScreen() {
 
   const handleSelectPayment = async (option) => {
     if (processingMethod) return;
-    setProcessingMethod(option.id);
+    if (!["PRODUCT", "CALCULATOR"].includes(saleMode)) {
+  setProcessingMethod(null);
+  Alert.alert(
+    "Configuration Error",
+    "The company's POS mode is missing or invalid. Please reload your company details and try again."
+  );
+  return;
+}
 
     let sale;
     let actualPaidAmount = Number(paymentAmount) || 0;
@@ -60,37 +73,77 @@ export default function CheckoutScreen() {
       if (!saleRef.current) {
         const customerId = customer?._id || customer?.id || null;
 
-        const payload = {
-          customer_id: customerId,
-          source: "POS",
-          sale_mode: "CALCULATOR",
-          subtotal: Number(subtotal) || 0,
+
+const payload = {
+  customer_id: customerId,
+  source: "POS",
+  sale_mode: saleMode,
+
+invoice_date: saleDate || new Date().toLocaleDateString("en-CA"),
+  subtotal: Number(subtotal) || 0,
+
           discount_amount: Number(discount) || 0,
           total_amount: Number(discountedGrandTotal) || 0,
           transportation_details: transportationDetails,
-          items: cartItems.map((item) => ({
-            product_id: null,
-            product_name: item.product || item.name || "",
-            description: item.description || "",
-            qty: Number(item.qty) || 0,
-            rate: Number(item.price) || 0,
-            amount: (Number(item.qty) || 0) * (Number(item.price) || 0),
-            unit: item.unit || "PCS",
-            hsn: "",
-            gst_rate: 0,
-          })),
+
+items: cartItems.map((item) => ({
+  ...(saleMode === "PRODUCT"
+    ? { product_id: item._id || item.id || item.product_id }
+    : {}),
+  product_name: item.product || item.name || item.product_name || "",
+  description: item.description || "",
+  qty: Number(item.qty) || 0,
+  rate: Number(item.price ?? item.salePrice ?? item.mrp ?? item.rate ?? 0),
+  amount:
+    (Number(item.qty) || 0) *
+    Number(item.price ?? item.salePrice ?? item.mrp ?? item.rate ?? 0),
+  unit: item.unit || "PCS",
+  hsn: item.hsn || "",
+  gst_rate: 0,
+
+  // Preserve bag information for the backend
+  bags: Number(item.bags) || 0,
+  units_per_bag: Number(item.units_per_bag) || 0,
+})),
+
         };
 
+        console.log("📅 SELECTED SALE DATE:", saleDate);
+console.log("📅 DATE SENT TO BACKEND:", payload.invoice_date);
+console.log("📦 FULL SALE PAYLOAD:", JSON.stringify(payload, null, 2));
+
         const response = await createSale(payload);
+
+        console.log(
+  "🛍️ CHECK BAG VALUES:",
+  cartItems.map((item) => ({
+    product: item.product || item.name || item.product_name,
+    qty: item.qty,
+    bags: item.bags,
+    units_per_bag: item.units_per_bag,
+  }))
+);
+
+        
         saleRef.current = response.data || response;
       }
       sale = saleRef.current;
 
-      const paymentResponse = await createPayment({
-        sale_id: sale.sale_id,
-        amount: Number(paymentAmount) || 0,
-        payment_method: option.api,
-      });
+   
+const paymentDate =
+  saleDate ||
+  sale.invoice_date ||
+  new Date().toISOString().slice(0, 10);
+
+console.log("📅 PAYMENT DATE SENT TO BACKEND:", paymentDate);
+
+const paymentResponse = await createPayment({
+  sale_id: sale.sale_id || sale._id,
+  amount: Number(paymentAmount) || 0,
+  payment_method: option.api,
+  payment_date: paymentDate,
+});
+
 
       actualPaidAmount = Number(
         paymentResponse?.data?.payment_amount ??
@@ -116,6 +169,7 @@ export default function CheckoutScreen() {
         user,
         customer,
         sale,
+        saleDate,
         cartItems,
         paymentMode: option.mode,
         transportationDetails,

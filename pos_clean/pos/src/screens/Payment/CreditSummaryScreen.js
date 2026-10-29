@@ -124,15 +124,27 @@ export default function PaymentSummaryScreen() {
           setSummary(response.data);
           setLoadError(false);
           setCustomAmount(null);
-        } catch (error) {
-          console.log("❌ CREDIT SUMMARY ERROR:", error?.response?.data || error.message);
-          if (!cancelled) setLoadError(true);
-        } finally {
-          if (!cancelled) {
-            setRefreshing(false);
-            setLoading(false);
-            firstLoad.current = false;
-          }
+      
+} catch (error) {
+  console.log("❌ SAVE CREDIT ORDER ERROR:", {
+    message: error?.message,
+    status: error?.response?.status,
+    response: error?.response?.data,
+    url: error?.config?.url,
+    method: error?.config?.method,
+    payload: error?.config?.data,
+  });
+
+  Alert.alert(
+    "Unable to Save Order",
+    error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      "Something went wrong while saving the order."
+  );
+} finally {
+  setSavingOrder(false);
+
         }
       },
       firstLoad.current ? 0 : 450
@@ -183,10 +195,10 @@ export default function PaymentSummaryScreen() {
     try {
       setSavingOrder(true);
 
-      const payload = {
-        customer_id: customerId,
-        source: "POS",
-        sale_mode: "CALCULATOR",
+    const payload = {
+  customer_id: customerId,
+  source: "POS",
+  sale_mode: company?.pos_mode || "PRODUCT",
         subtotal: Number(subtotal) || 0,
         discount_amount: discountValue,
         total_amount: discountedGrandTotal,
@@ -217,6 +229,7 @@ export default function PaymentSummaryScreen() {
           user,
           customer,
           sale,
+          saleDate,
           cartItems,
           paymentMode: "Credit",
           transportationDetails,

@@ -164,7 +164,7 @@ const apm = StyleSheet.create({
 // ════════════════════════════════════════════════════════════════════════════
 
 const MiniProductCard = React.memo(({ item, onPress, onImageChange, onPrint }) => {
-    const qty      = item.stock || item.total_stock || 0;
+   const qty = Number(item.stock ?? item.total_stock ?? 0);
   const mrp      = Number(item.salePrice || item.price || 0).toFixed(0);
   const inactive = item.is_active === false;
 
@@ -394,7 +394,7 @@ const handleImageChange = useCallback(async (productId, newUri) => {
     });
 
     const response = await fetch(
-      "https://back.dlumebiz.com/api/upload/product-image",
+      "http://192.168.1.10:3001/api/upload/product-image",
       {
         method: "POST",
         headers: {
@@ -501,8 +501,14 @@ const renderCategoryTab = ({ item }) => {
   // ── Render: table row (All tab) ──────────────────────────────────────────
 
   const renderTableRow = useCallback(({ item }) => {
-    const qty       = item.stock || item.total_stock || 0;
+    const qty = Number(item.stock ?? item.total_stock ?? 0);
+    console.log("PRODUCT STOCK DEBUG:", item.product, {
+  stock: item.stock,
+  total_stock: item.total_stock,
+  id: item._id,
+});
     const mrp       = Number(item.salePrice || item.price || 0).toFixed(0);
+    const purchasePrice = Number(item.purchase_price ?? 0).toFixed(0);
     const stockIn   = item.stock_in    ?? item.stockIn    ?? 0;
     const stockOut  = item.stock_out   ?? item.stockOut   ?? 0;
     const barcodeQty= item.barcode_qty ?? item.barcodeQty ?? 1;
@@ -523,8 +529,15 @@ const renderCategoryTab = ({ item }) => {
 
         <Text style={[styles.colCell, inactive && styles.colCellInactive]}>{item.type || "—"}</Text>
         <Text style={[styles.colCell, inactive && styles.colCellInactive]}>{item.size || "—"}</Text>
-        <Text style={[styles.colCell, inactive && styles.colCellInactive]}>₹{mrp}</Text>
-        <Text style={[styles.colCell, inactive && styles.colCellInactive]}>{stockIn}</Text>
+<Text style={[styles.colCell, inactive && styles.colCellInactive]}>
+  ₹{mrp}
+</Text>
+<Text style={[styles.colCell, inactive && styles.colCellInactive]}>
+  ₹{purchasePrice}
+</Text>
+<Text style={[styles.colCell, inactive && styles.colCellInactive]}>
+  {stockIn}
+</Text>
         <Text style={[styles.colCell, inactive && styles.colCellInactive]}>{stockOut}</Text>
         <Text style={[styles.colStock, inactive ? styles.colCellInactive : { color: stockColor(qty) }]}>
           {qty}
@@ -599,8 +612,9 @@ const renderMiniCard = useCallback(({ item }) => (
           <Text style={styles.headerProduct}>Product</Text>
           <Text style={styles.headerCell}>Type</Text>
           <Text style={styles.headerCell}>Size</Text>
-          <Text style={styles.headerCell}>MRP</Text>
-          <Text style={styles.headerCell}>In</Text>
+<Text style={styles.headerCell}>MRP</Text>
+<Text style={styles.headerCell}>Purchase Price</Text>
+<Text style={styles.headerCell}>In</Text>
           <Text style={styles.headerCell}>Out</Text>
           <Text style={styles.headerCell}>Total</Text>
           <Text style={styles.headerCell}>Scan Qty</Text>
@@ -739,8 +753,22 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  headerProduct: { flex: 3, color: "#94A3B8", fontWeight: "700", fontSize: 16, letterSpacing: 0.4 },
-  headerCell:    { flex: 1, color: "#94A3B8", fontWeight: "700", fontSize: 16, letterSpacing: 0.4, textAlign: "center" },
+headerProduct: {
+  flex: 2.5,
+  color: "#94A3B8",
+  fontWeight: "700",
+  fontSize: 14,
+  letterSpacing: 0.2,
+  textAlign: "left",
+},
+headerCell: {
+  flex: 1,
+  color: "#94A3B8",
+  fontWeight: "700",
+  fontSize: 13,
+  letterSpacing: 0,
+  textAlign: "center",
+},
 
   tableRow: {
     flexDirection: "row",
@@ -753,14 +781,24 @@ const styles = StyleSheet.create({
   },
   tableRowInactive: { backgroundColor: "#F8FAFC" },
 
-  colProduct:              { flex: 3, flexDirection: "row", alignItems: "center", paddingRight: 10 },
+colProduct: {
+  flex: 2.5,
+  flexDirection: "row",
+  alignItems: "center",
+  paddingRight: 6,
+},
+colCell: {
+  flex: 1,
+  textAlign: "center",
+  color: "#475569",
+  fontSize: 15,
+},
   thumbFaded:              { opacity: 0.35 },
   rowThumb:                { width: 42, height: 42, borderRadius: 9, backgroundColor: "#F1F5F9", flexShrink: 0 },
   rowThumbPlaceholder:     { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#E2E8F0" },
   colProductName:          { flex: 1, fontSize: 19, fontWeight: "700", color: "#0F172A", marginLeft: 12 },
   colProductNameInactive:  { color: "#94A3B8" },
 
-  colCell:         { flex: 1, textAlign: "center", color: "#475569", fontSize: 19 },
   colCellInactive: { color: "#CBD5E1" },
   colStock:        { flex: 1, textAlign: "center", fontSize: 19, fontWeight: "700" },
 

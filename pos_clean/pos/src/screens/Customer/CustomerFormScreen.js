@@ -257,14 +257,7 @@ const {
               placeholder="e.g. 9999999999"
               keyboardType="phone-pad"
             />
-            <FormField
-              label="E-mail"
-              value={email}
-              onChangeText={(t) => onChange("email", t)}
-              placeholder="e.g. customername@domain.com"
-              keyboardType="email-address"
-            />
-
+          
 <FormField
   label="Opening Balance"
   value={String(opening_balance ?? "")}
@@ -272,6 +265,15 @@ const {
   placeholder="e.g. 5000"
   keyboardType="numeric"
 />
+
+  <FormField
+              label="E-mail"
+              value={email}
+              onChangeText={(t) => onChange("email", t)}
+              placeholder="e.g. customername@domain.com"
+              keyboardType="email-address"
+            />
+
 
 
           </View>

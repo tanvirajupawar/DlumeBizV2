@@ -17,6 +17,13 @@ const customerReturnItemSchema = new mongoose.Schema(
       index: true,
     },
 
+    product_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Product",
+  default: null,
+  index: true,
+},
+
     description: {
       type: String,
       default: "",

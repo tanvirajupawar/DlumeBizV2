@@ -30,12 +30,14 @@ import Header from "../../components/Header";
 import OrderPane from "../../components/OrderPane";
 import CartPanel from "../../components/CartPanel";
 import HeldCartsSheet from "../../components/HeldCartsSheet";
+import QuickQtyModal from "../../components/QuickQtyModal";
 import { WALK_IN_CUSTOMER } from "../../components/CustomerSelector";
 import CustomerSearchScreen from "../Customer/CustomerSearchScreen";
 import CustomerFormScreen from "../Customer/CustomerFormScreen";
 import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import {
   createCustomerReturn,
@@ -45,7 +47,10 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useEffect } from "react";
-import { fetchProducts } from "../../api/product";
+import {
+  fetchProducts,
+  createProduct,
+} from "../../api/product";
 import {
   fetchCustomers,
   createCustomer,
@@ -66,7 +71,6 @@ import PaymentsScreen from "../Payment/PaymentsScreen";
 import CustomerListScreen from "../Customer/CustomerListScreen";
 import CustomerAccountScreen from "../Customer/CustomerAccountScreen";
 import InactiveCustomersScreen from "../Customer/InactiveCustomersScreen";
-   import { fetchCategories } from "../../api/category";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import CategoryModal from "../../components/CategoryModal";
 import CalculatorPane from "../../components/CalculatorPane";
@@ -92,6 +96,9 @@ const CACHE_KEYS = {
 
 const ALL_ITEMS_CATEGORY = { _id: "all", category: "All Items" };
 
+const toYMD = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export default function POSScreen() {
   const { logout, user } = useAuth();
 
@@ -116,6 +123,51 @@ const [customerPaymentResult, setCustomerPaymentResult] = useState(null);
 const [transportModalVisible, setTransportModalVisible] = useState(false);
 const [transportationDetails, setTransportationDetails] = useState("");
 const [transportationInput, setTransportationInput] = useState("");
+
+
+
+const toYMD = (date) => {
+  const d = new Date(date);
+
+  return `${d.getFullYear()}-${String(
+    d.getMonth() + 1
+  ).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+};
+
+const [saleDate, setSaleDate] = useState(
+  () => toYMD(new Date())
+);
+
+const [showDatePicker, setShowDatePicker] = useState(false);
+
+const handleDateChange = (event, selected) => {
+  setShowDatePicker(false);
+
+  if (event?.type === "dismissed" || !selected) return;
+
+  const today = new Date();
+
+  const isToday =
+    selected.getFullYear() === today.getFullYear() &&
+    selected.getMonth() === today.getMonth() &&
+    selected.getDate() === today.getDate();
+
+  setSaleDate(isToday ? null : selected);
+};
+
+const saleDateLabel = saleDate
+  ? new Date(`${saleDate}T12:00:00`).toLocaleDateString(
+      "en-GB",
+      {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }
+    )
+  : null;
+
 
 const [returnCartItems, setReturnCartItems] = useState([]);
 const [returnSelectedCustomer, setReturnSelectedCustomer] =
@@ -659,6 +711,30 @@ if (!isScanningRef.current && searchText.trim()) {
     }
   };
 
+
+
+const handleAddProductFromPOS = () => {
+  const productCategories = categories.filter(
+    (category) => category._id !== "all"
+  );
+
+  handleOpenProductForm({
+    product: null,
+    categories: productCategories,
+    initialCategoryId:
+      activeCategory === "all" ? "" : activeCategory,
+
+    // Show only the quick-add fields in POS
+    posQuickAdd: true,
+
+    onSave: async (formData) => {
+      await createProduct(formData);
+      await loadProducts({ silent: true });
+    },
+  });
+};
+
+
 const loadCustomers = async ({ silent = false } = {}) => {
   try {
  const data = await fetchCustomers();
@@ -679,7 +755,6 @@ setCustomers(data);
 };
 
 
-
 const handleCustomerPay = async (customer) => {
   const customerId = customer?._id || customer?.id;
 
@@ -688,49 +763,15 @@ const handleCustomerPay = async (customer) => {
     return;
   }
 
-  // Open the modal immediately — don't wait for the API.
+  // Customer-list payments must not target a specific invoice.
+  // Backend allocates opening balance first, then oldest invoice.
   setPaymentSaleId(null);
   setPaymentCustomer(customer);
   setPaymentFetching(true);
 
   try {
-    const response = await fetchCustomerInvoices(customerId);
-
-    const sales =
-      response?.data?.data ??
-      response?.data ??
-      [];
-
-    const unpaidSales = (Array.isArray(sales) ? sales : [])
-      .map((sale) => {
-        const total = Number(sale.total_amount || 0);
-        const paid = Number(sale.paid_amount || 0);
-
-        const remaining = Number(
-          sale.remaining_amount ??
-            Math.max(0, total - paid)
-        );
-
-        return {
-          ...sale,
-          remaining_amount: remaining,
-        };
-      })
-      .filter(
-        (sale) => Number(sale.remaining_amount || 0) > 0
-      );
-
-    // Newest unpaid invoice first.
-    unpaidSales.sort(
-      (a, b) =>
-        new Date(b.invoice_date || b.createdAt || 0) -
-        new Date(a.invoice_date || a.createdAt || 0)
-    );
-
-    // Preserve existing invoice/opening-balance payment logic.
-    setPaymentSaleId(
-      unpaidSales.length > 0 ? unpaidSales[0]._id : null
-    );
+    // Keep fetching invoices to preserve the existing loading flow.
+    await fetchCustomerInvoices(customerId);
   } catch (error) {
     console.log(
       "CUSTOMER PAYMENT LOAD ERROR:",
@@ -1284,29 +1325,83 @@ const handleProductPress = (product, qtyToAdd = 1) => {
 };
 
 
+const [quickAddProduct, setQuickAddProduct] = useState(null);
+const [unitsMap, setUnitsMap] = useState({});
+const unitsStorageKey = companyId ? `pos:units-per-bag:v1:${companyId}` : null;
+
+useEffect(() => {
+  if (!unitsStorageKey) {
+    setUnitsMap({});
+    return;
+  }
+  let cancelled = false;
+  AsyncStorage.getItem(unitsStorageKey)
+    .then((s) => {
+      if (!cancelled) setUnitsMap(s ? JSON.parse(s) : {});
+    })
+    .catch(() => {});
+  return () => {
+    cancelled = true;
+  };
+}, [unitsStorageKey]);
+
+const handleProductTap = (product) => setQuickAddProduct(product);
+
+const handleQuickAdd = ({ bags, units }) => {
+  const product = quickAddProduct;
+  if (!product) return;
+  const productId = product._id || product.id;
+  const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
+
+  updateCart((prev) => {
+    const existing = prev.find((i) => (i._id || i.id) === productId);
+    if (existing) {
+      const sameUnits =
+        existing.bags != null && existing.units_per_bag === units;
+      return prev.map((i) =>
+        (i._id || i.id) === productId
+          ? {
+              ...i,
+              qty: (Number(i.qty) || 0) + bags * units,
+              bags: sameUnits ? existing.bags + bags : null,
+              units_per_bag: sameUnits ? units : null,
+            }
+          : i
+      );
+    }
+    return [...prev, { ...product, qty: bags * units, bags, units_per_bag: units }];
+  });
+
+  // Remember units for next time
+  if (unitsStorageKey) {
+    const next = { ...unitsMap, [productId]: units };
+    setUnitsMap(next);
+    AsyncStorage.setItem(unitsStorageKey, JSON.stringify(next)).catch(() => {});
+  }
+  setQuickAddProduct(null);
+};
+
 
 
 
 const handleUpdateCartItem = (itemId, updates) => {
-  const updateCart = isReturnMode
-    ? setReturnCartItems
-    : setCartItems;
+  const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
   updateCart((prev) =>
     prev.map((item) =>
       (item._id || item.id) === itemId
-        ? {
+               ? {
             ...item,
             qty: updates.qty,
             price: updates.price,
             description: updates.description,
+            bags: null,
+            units_per_bag: null,
           }
         : item
     )
   );
 };
-
-
 
   const handleOpenManageItem = (item) => {
     setManagedItem(item);
@@ -1320,27 +1415,33 @@ const handleUpdateCartItem = (itemId, updates) => {
 const handleIncrement = (item) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
   const itemId = item._id || item.id;
-
   updateCart((prev) =>
-    prev.map((i) =>
-      (i._id || i.id) === itemId
-        ? { ...i, qty: (Number(i.qty) || 0) + 1 }
-        : i
-    )
+    prev.map((i) => {
+      if ((i._id || i.id) !== itemId) return i;
+      const step = Number(i.units_per_bag) > 0 ? Number(i.units_per_bag) : 1;
+      return {
+        ...i,
+        qty: (Number(i.qty) || 0) + step,
+        bags: i.bags != null ? i.bags + 1 : i.bags,
+      };
+    })
   );
 };
 
 const handleDecrement = (item) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
   const itemId = item._id || item.id;
-
   updateCart((prev) =>
     prev
-      .map((i) =>
-        (i._id || i.id) === itemId
-          ? { ...i, qty: (Number(i.qty) || 0) - 1 }
-          : i
-      )
+      .map((i) => {
+        if ((i._id || i.id) !== itemId) return i;
+        const step = Number(i.units_per_bag) > 0 ? Number(i.units_per_bag) : 1;
+        return {
+          ...i,
+          qty: (Number(i.qty) || 0) - step,
+          bags: i.bags != null ? i.bags - 1 : i.bags,
+        };
+      })
       .filter((i) => (Number(i.qty) || 0) > 0)
   );
 };
@@ -1386,6 +1487,7 @@ const grandTotal = subtotal;
     const resetPOS = async () => {
       setCartItems([]);
       setSelectedCustomer(WALK_IN_CUSTOMER);
+      setSaleDate(null);
 
       setSidebarCollapsed(true);
       setActiveNav("cart");
@@ -1629,7 +1731,7 @@ searchPlaceholder={
 rightExtra={null}
 
 
-returnButton={activeNav === "cart" && isCalculatorMode}
+returnButton={activeNav === "cart"}
 onReturnPress={() => {
   setIsReturnMode((prev) => !prev);
   setManagedItem(null);
@@ -1654,13 +1756,14 @@ transportationDetails={transportationDetails}
   {isCalculatorMode ? (
     <CalculatorPane onAddToCart={handleAddCalculatorItem} />
   ) : (
-    <OrderPane
-      categories={categories}
-      activeCategory={activeCategory}
-      onSelectCategory={setActiveCategory}
-      products={filteredProducts}
-      onProductPress={handleProductPress}
-    />
+<OrderPane
+  categories={categories}
+  activeCategory={activeCategory}
+  onSelectCategory={setActiveCategory}
+  products={filteredProducts}
+  onProductPress={handleProductTap}
+onAddItem={handleAddProductFromPOS}
+/>
   )}
 </View>
 
@@ -1670,6 +1773,8 @@ transportationDetails={transportationDetails}
                     onClearCart={handleClearCart}
                     onIncrement={handleIncrement}
                     onDecrement={handleDecrement}
+                    saleDateLabel={saleDateLabel}
+onDatePress={() => setShowDatePicker(true)}
                     onRemove={handleRemove}
                     onOpenManageItem={handleOpenManageItem}
                     onHoldCart={handleHoldCart}
@@ -1735,7 +1840,9 @@ const customerId =
     }
 
  
+
 const returnItems = activeCartItems.map((item) => ({
+  product_id: item._id || item.id || null,
   description:
     item.product_name ||
     item.product ||
@@ -1753,6 +1860,7 @@ const returnItems = activeCartItems.map((item) => ({
   qty: Number(item.qty) || 0,
   price: Number(item.price) || 0,
 }));
+
 
 
     const hasInvalidItems = returnItems.some(
@@ -1842,12 +1950,22 @@ navigation.navigate("POSReturnSuccess", {
     return;
   }
 
-
+console.log(
+  "🛒 CART ITEMS BEFORE PAYMENT SUMMARY:",
+  JSON.stringify(cartItems, null, 2)
+);
 
 
 // All sales — including walk-in customers — go through Payment Summary.
 navigation.navigate("PaymentSummary", {
-  cartItems,
+
+  
+  cartItems: cartItems.map((item) => ({
+    ...item,
+    qty: Number(item.qty) || 0,
+    bags: Number(item.bags) || 0,
+    units_per_bag: Number(item.units_per_bag) || 0,
+  })),
   customer:
     selectedCustomer === WALK_IN_CUSTOMER
       ? null
@@ -1857,6 +1975,7 @@ navigation.navigate("PaymentSummary", {
   discount,
   grandTotal,
   transportationDetails,
+  saleDate: saleDate || toYMD(new Date()),
 });
 
 
@@ -1895,16 +2014,16 @@ navigation.navigate("PaymentSummary", {
 
             {activeNav === "productForm" && productFormState && (
               <View style={styles.fullContent}>
-                <ProductFormScreen
-                  product={productFormState.product}
-                  categories={productFormState.categories}
-                  initialCategoryId={productFormState.initialCategoryId}
-                  onSave={productFormState.onSave}
-                  onCancel={handleCloseProductForm}
-                />
+              <ProductFormScreen
+  product={productFormState.product}
+  categories={productFormState.categories}
+  initialCategoryId={productFormState.initialCategoryId}
+  onSave={productFormState.onSave}
+  onCancel={handleCloseProductForm}
+  posQuickAdd={productFormState.posQuickAdd === true}
+/>
               </View>
             )}
-```jsx
 {activeNav === "customers" && (
   <View style={styles.fullContent}>
     {showInactiveCustomersPage ? (
@@ -1921,13 +2040,16 @@ navigation.navigate("PaymentSummary", {
         onPrintSummary={handlePrintCustomerSummary}
       />
     ) : selectedCustomerAccount ? (
-      <CustomerAccountScreen
-        key={`${selectedCustomerAccount._id || selectedCustomerAccount.id}-${accountRefreshKey}`}
-        customer={selectedCustomerAccount}
-        onBack={() => setSelectedCustomerAccount(null)}
-        onMenuPress={() => setSidebarCollapsed(false)}
-        onEditPress={handleOpenEditCustomer}
-      />
+     
+<CustomerAccountScreen
+  key={`${selectedCustomerAccount._id || selectedCustomerAccount.id}-${accountRefreshKey}`}
+  customer={selectedCustomerAccount}
+  company={user?.company || user?.company_id || null}
+  onBack={() => setSelectedCustomerAccount(null)}
+  onMenuPress={() => setSidebarCollapsed(false)}
+  onEditPress={handleOpenEditCustomer}
+/>
+
     ) : (
       <CustomerListScreen
         customers={customers}
@@ -1943,16 +2065,33 @@ navigation.navigate("PaymentSummary", {
     )}
   </View>
 )}
-```
+
+
 
 {activeNav === "orders" && (
   <View style={styles.fullContent}>
     <OrdersScreen
       onBack={() => setActiveNav("cart")}
       onMenuPress={() => setSidebarCollapsed(false)}
+      onAccount={(customerId, customer) => {
+        const matchedCustomer = customers.find(
+          (c) =>
+            String(c._id || c.id) === String(customerId)
+        );
+
+        setSelectedCustomerAccount({
+          ...(matchedCustomer || {}),
+          ...(customer || {}),
+          _id: customerId,
+        });
+
+        setShowInactiveCustomersPage(false);
+        setActiveNav("customers");
+      }}
     />
   </View>
 )}
+
 
 {activeNav === "payments" && (
   <View style={styles.fullContent}>
@@ -2022,6 +2161,34 @@ onApply={(updates) => {
 }}
 
       />
+
+
+      <QuickQtyModal
+  visible={!!quickAddProduct}
+  product={quickAddProduct}
+  initialUnits={
+    quickAddProduct
+      ? unitsMap[quickAddProduct._id || quickAddProduct.id]
+      : undefined
+  }
+  onClose={() => setQuickAddProduct(null)}
+  onAdd={handleQuickAdd}
+/>
+
+
+{showDatePicker && (
+ <DateTimePicker
+  value={
+    saleDate instanceof Date && !Number.isNaN(saleDate.getTime())
+      ? saleDate
+      : new Date()
+  }
+  mode="date"
+  display="calendar"
+  maximumDate={new Date()}
+  onChange={handleDateChange}
+/>
+)}
 
 {/* Customer flow: one Modal, two internal screens — no close/reopen flicker */}
       <Modal

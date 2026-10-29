@@ -171,19 +171,19 @@ if (entry.type === "divider") {
           )}
         </View>
 
-        <Text
-          style={[styles.td, styles.colPhone, inactive && styles.mutedText]}
-          numberOfLines={1}
-        >
-          {getPhone(item) || "—"}
-        </Text>
+       <Text
+  style={[styles.td, styles.colCompany, inactive && styles.mutedText]}
+  numberOfLines={1}
+>
+  {getCompany(item) || "—"}
+</Text>
 
-        <Text
-          style={[styles.td, styles.colCompany, inactive && styles.mutedText]}
-          numberOfLines={1}
-        >
-          {getCompany(item) || "—"}
-        </Text>
+<Text
+  style={[styles.td, styles.colPhone, inactive && styles.mutedText]}
+  numberOfLines={1}
+>
+  {getPhone(item) || "—"}
+</Text>
 
         <Text
           style={[
@@ -258,8 +258,8 @@ if (entry.type === "divider") {
           <View style={[styles.tr, styles.thRow]}>
             <Text style={[styles.th, styles.colSr]}>Sr</Text>
             <Text style={[styles.th, styles.colName]}>Name</Text>
-            <Text style={[styles.th, styles.colPhone]}>Phone</Text>
             <Text style={[styles.th, styles.colCompany]}>Company</Text>
+<Text style={[styles.th, styles.colPhone]}>Phone</Text>
             <Text style={[styles.th, styles.colOutstanding]}>
               Outstanding
             </Text>

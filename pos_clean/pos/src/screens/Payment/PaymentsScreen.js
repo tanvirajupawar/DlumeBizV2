@@ -24,6 +24,7 @@ import {
 } from "../../components/Colors";
 import Header from "../../components/Header";
 import { printDailyPaymentSummary } from "../../services/printer";
+import { Alert } from "react-native";
 // Same shared cache module used by OrdersScreen — see utils/cache.js for
 // how the sync/async split works.
 import { getCached, setCached, getCachedSync } from "../../utils/cache";

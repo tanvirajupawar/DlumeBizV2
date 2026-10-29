@@ -37,7 +37,7 @@ const emptyForm = {
   hsn: "",
   purchase_price: "",
   mrp: "",
-  stock: "",
+  opening_stock: "",   // only used when creating
   unit: "",
   barcode_qty: "",
   is_active: true,
@@ -55,7 +55,7 @@ const buildInitialForm = (product) => {
     purchase_price:
       product.purchase_price != null ? String(product.purchase_price) : "",
     mrp: product.mrp != null ? String(product.mrp) : "",
-    stock: product.stock != null ? String(product.stock) : "",
+    opening_stock: "", // not edited after creation
     unit: product.unit ?? "",
     barcode_qty:
       product.barcode_qty != null ? String(product.barcode_qty) : "",
@@ -63,15 +63,6 @@ const buildInitialForm = (product) => {
   };
 };
 
-/**
- * A single underline text field, styled to match CustomerFormScreen's
- * FormField exactly: label (+ red "*" if required) above, thin gray
- * underline that turns blue while focused.
- *
- * Supports an `editable` flag (defaults to true) so fields like the
- * auto-generated Barcode can be shown but not typed into, and an
- * optional `hint` line rendered under the input when there's no error.
- */
 function FormField({
   label,
   required,
@@ -136,8 +127,11 @@ const ProductFormScreen = ({
   onSave,
   onCancel,
   loading: loadingParam = false,
+  posQuickAdd = false,
 }) => {
   const scrollRef = useRef(null);
+
+  const isEditing = !!product;
 
   const [form, setForm] = useState(() => buildInitialForm(product));
   const [errors, setErrors] = useState({});
@@ -148,6 +142,28 @@ const ProductFormScreen = ({
   );
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Stock adjustment (edit mode only)
+const [adjustQty, setAdjustQty] = useState("");
+const [pendingAdjustment, setPendingAdjustment] = useState(0); // signed total, e.g. +5 or -3
+const currentStock = Number(product?.stock) || 0;
+const newTotalStock = currentStock + pendingAdjustment;
+
+const applyAdjustment = (direction) => {
+  const qty = Number(adjustQty);
+  if (!adjustQty || isNaN(qty) || qty <= 0 || !Number.isInteger(qty)) {
+    setErrors((prev) => ({ ...prev, adjust: "Enter a whole number greater than 0." }));
+    return;
+  }
+  const delta = direction * qty;
+  if (currentStock + pendingAdjustment + delta < 0) {
+    setErrors((prev) => ({ ...prev, adjust: "Stock can't go below 0." }));
+    return;
+  }
+  setPendingAdjustment((prev) => prev + delta);
+  setAdjustQty("");
+  setErrors((prev) => ({ ...prev, adjust: null }));
+};
 
   const updateField = useCallback((field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -225,7 +241,7 @@ const ProductFormScreen = ({
       });
 
       const response = await fetch(
-        "https://back.dlumebiz.com/api/upload/product-image",
+        "http://192.168.1.10:3001/api/upload/product-image",
         {
           method: "POST",
           headers: {
@@ -265,9 +281,9 @@ const ProductFormScreen = ({
     if (form.mrp && isNaN(Number(form.mrp))) {
       nextErrors.mrp = "Must be a number.";
     }
-    if (form.stock && isNaN(Number(form.stock))) {
-      nextErrors.stock = "Must be a number.";
-    }
+ if (!isEditing && form.opening_stock && isNaN(Number(form.opening_stock))) {
+  nextErrors.opening_stock = "Must be a number.";
+}
     if (form.barcode_qty && isNaN(Number(form.barcode_qty))) {
       nextErrors.barcode_qty = "Must be a number.";
     }
@@ -297,15 +313,27 @@ const payload = {
   mrp: form.mrp
     ? Number(form.mrp)
     : 0,
-  stock: form.stock
-    ? Number(form.stock)
-    : 0,
+
   unit: form.unit.trim(),
   barcode_qty: form.barcode_qty
     ? Number(form.barcode_qty)
     : 0,
   is_active: form.is_active,
 };
+
+
+// Stock is only set at creation. On edit we never send it, so the
+// existing total stock can't be overwritten by the form.
+if (!isEditing) {
+  const opening = form.opening_stock ? Number(form.opening_stock) : 0;
+  payload.opening_stock = opening;
+  payload.stock = opening; // total starts equal to opening
+}
+
+// Edit mode: send only the change, never the absolute total.
+if (isEditing && pendingAdjustment !== 0) {
+  payload.stock_adjustment = pendingAdjustment;
+}
 
 // Only attach category when one is actually selected
 if (categoryId) {
@@ -380,37 +408,42 @@ if (categoryId) {
           {/* Product Details */}
           <View style={styles.section}>
             <View style={styles.centerCol}>
-              <Text style={styles.sectionTitle}>Product Details</Text>
+          {!posQuickAdd && (
+  <Text style={styles.sectionTitle}>Product Details</Text>
+)}
 
               {/* Product Image — the only editable image surface in the app */}
-              <View style={styles.field}>
-                <Text style={styles.label}>Product Image</Text>
+          {!posQuickAdd && (
+  <View style={styles.field}>
+    <Text style={styles.label}>Product Image</Text>
 
-                <Pressable
-                  style={styles.imagePicker}
-                  onPress={pickImage}
-                  disabled={uploadingImage}
-                >
-                  {form.image ? (
-                    <Image source={{ uri: form.image }} style={styles.productImage} />
-                  ) : (
-                    <View style={styles.imagePlaceholder}>
-                      <Text style={styles.imagePlaceholderText}>Tap to select image</Text>
-                    </View>
-                  )}
+    <Pressable
+      style={styles.imagePicker}
+      onPress={pickImage}
+      disabled={uploadingImage}
+    >
+      {form.image ? (
+        <Image source={{ uri: form.image }} style={styles.productImage} />
+      ) : (
+        <View style={styles.imagePlaceholder}>
+          <Text style={styles.imagePlaceholderText}>
+            Tap to select image
+          </Text>
+        </View>
+      )}
 
-                  {uploadingImage && (
-                    <View style={styles.imageUploadingOverlay}>
-                      <ActivityIndicator size="small" color={COLORS.textOnDark} />
-                    </View>
-                  )}
+      {uploadingImage && (
+        <View style={styles.imageUploadingOverlay}>
+          <ActivityIndicator size="small" color={COLORS.textOnDark} />
+        </View>
+      )}
 
-                  <View style={styles.imageEditBadge}>
-                    <Text style={styles.imageEditBadgeText}>Edit</Text>
-                  </View>
-                </Pressable>
-              </View>
-
+      <View style={styles.imageEditBadge}>
+        <Text style={styles.imageEditBadgeText}>Edit</Text>
+      </View>
+    </Pressable>
+  </View>
+)}
               {/* Category */}
               <View style={styles.field}>
                <Text style={styles.label}>
@@ -464,117 +497,203 @@ if (categoryId) {
                 </View>
               </View>
 
-              <View style={styles.row}>
-                <View style={styles.halfField}>
-                  {/* Barcode is auto-generated elsewhere and shown here
-                      read-only so it stays visible but can't be edited. */}
-                  <FormField
-                    label="Barcode"
-                    value={form.barcode}
-                    onChangeText={(v) => updateField("barcode", v)}
-                    placeholder="Auto-generated"
-                    editable={false}
-                    hint="Auto-generated"
-                    onFocus={handleFieldFocus}
-                  />
-                </View>
-                <View style={styles.halfField}>
-                  <FormField
-                    label="HSN"
-                    value={form.hsn}
-                    onChangeText={(v) => updateField("hsn", v)}
-                    placeholder="HSN code"
-                    onFocus={handleFieldFocus}
-                  />
-                </View>
-              </View>
+              
+
+              {!posQuickAdd && (
+  <View style={styles.row}>
+    <View style={styles.halfField}>
+      <FormField
+        label="Barcode"
+        value={form.barcode}
+        onChangeText={(v) => updateField("barcode", v)}
+        placeholder="Auto-generated"
+        editable={false}
+        hint="Auto-generated"
+        onFocus={handleFieldFocus}
+      />
+    </View>
+
+    <View style={styles.halfField}>
+      <FormField
+        label="HSN"
+        value={form.hsn}
+        onChangeText={(v) => updateField("hsn", v)}
+        placeholder="HSN code"
+        onFocus={handleFieldFocus}
+      />
+    </View>
+  </View>
+)}
             </View>
           </View>
 
-          {/* Section separator strip */}
-          <View style={styles.sectionDivider} />
+      {/* Pricing & Stock */}
+{posQuickAdd ? (
+  <View style={styles.section}>
+    <View style={styles.centerCol}>
+      <FormField
+        label="MRP"
+        value={form.mrp}
+        onChangeText={(v) => updateField("mrp", v)}
+        placeholder="0.00"
+        keyboardType="decimal-pad"
+        onFocus={handleFieldFocus}
+        error={errors.mrp}
+      />
+    </View>
+  </View>
+) : (
+  <>
+    <View style={styles.sectionDivider} />
 
-          {/* Pricing & Stock */}
-          <View style={styles.section}>
-            <View style={styles.centerCol}>
-              <Text style={styles.sectionTitle}>Pricing &amp; Stock</Text>
+    <View style={styles.section}>
+      <View style={styles.centerCol}>
+        <Text style={styles.sectionTitle}>Pricing &amp; Stock</Text>
 
-              <View style={styles.row}>
-                <View style={styles.thirdField}>
-                  <FormField
-                    label="Purchase Price"
-                    value={form.purchase_price}
-                    onChangeText={(v) => updateField("purchase_price", v)}
-                    placeholder="0.00"
-                    keyboardType="decimal-pad"
-                    onFocus={handleFieldFocus}
-                    error={errors.purchase_price}
-                  />
-                </View>
-                <View style={styles.thirdField}>
-                  <FormField
-                    label="MRP"
-                    value={form.mrp}
-                    onChangeText={(v) => updateField("mrp", v)}
-                    placeholder="0.00"
-                    keyboardType="decimal-pad"
-                    onFocus={handleFieldFocus}
-                    error={errors.mrp}
-                  />
-                </View>
-                <View style={styles.thirdField}>
-                  <FormField
-                    label="Opening Stock"
-                    value={form.stock}
-                    onChangeText={(v) => updateField("stock", v)}
-                    placeholder="0"
-                    keyboardType="number-pad"
-                    onFocus={handleFieldFocus}
-                    error={errors.stock}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.row}>
-                {/* <View style={styles.halfField}>
-                  <FormField
-                    label="Unit"
-                    value={form.unit}
-                    onChangeText={(v) => updateField("unit", v)}
-                    placeholder="e.g. pcs, kg"
-                    onFocus={handleFieldFocus}
-                  />
-                </View> */}
-                <View style={styles.halfField}>
-                  <FormField
-                    label="Barcode Qty"
-                    value={form.barcode_qty}
-                    onChangeText={(v) => updateField("barcode_qty", v)}
-                    placeholder="e.g. 1"
-                    keyboardType="number-pad"
-                    onFocus={handleFieldFocus}
-                    error={errors.barcode_qty}
-                  />
-                </View>
-              </View>
-
-              {/* Active toggle */}
-              <View style={styles.toggleRow}>
-                <View>
-                  <Text style={styles.label}>Active</Text>
-                  <Text style={styles.toggleHint}>
-                    {form.is_active ? "Visible and sellable in POS" : "Hidden from POS"}
-                  </Text>
-                </View>
-                <Switch
-                  value={form.is_active}
-                  onValueChange={(v) => updateField("is_active", v)}
-                  trackColor={{ false: COLORS.divider, true: COLORS.blue }}
-                  thumbColor={form.is_active ? COLORS.card : "#F1F5F9"}
-                />
-              </View>
-            </View>
+        <View style={styles.row}>
+          <View style={styles.thirdField}>
+            <FormField
+              label="Purchase Price"
+              value={form.purchase_price}
+              onChangeText={(v) => updateField("purchase_price", v)}
+              placeholder="0.00"
+              keyboardType="decimal-pad"
+              onFocus={handleFieldFocus}
+              error={errors.purchase_price}
+            />
           </View>
+
+          <View style={styles.thirdField}>
+            <FormField
+              label="MRP"
+              value={form.mrp}
+              onChangeText={(v) => updateField("mrp", v)}
+              placeholder="0.00"
+              keyboardType="decimal-pad"
+              onFocus={handleFieldFocus}
+              error={errors.mrp}
+            />
+          </View>
+
+       
+{isEditing ? (
+  <View style={styles.thirdField}>
+ <FormField
+  label="Total Stock"
+  value={String(newTotalStock)}
+  editable={false}
+  hint="Auto-updated"
+/>
+  </View>
+) : (
+  <View style={styles.thirdField}>
+    <FormField
+      label="Opening Stock"
+      value={form.opening_stock}
+      onChangeText={(v) => updateField("opening_stock", v)}
+      placeholder="0"
+      keyboardType="number-pad"
+      onFocus={handleFieldFocus}
+      error={errors.opening_stock}
+    />
+  </View>
+)}
+
+        </View>
+{isEditing && (
+  <View style={styles.adjustCard}>
+    <View style={styles.adjustHeader}>
+      <Text style={styles.adjustTitle}>Adjust Stock</Text>
+    <Text style={styles.adjustCurrent}>Current: {newTotalStock}</Text>
+    </View>
+
+    <TextInput
+      style={styles.adjustInput}
+      value={adjustQty}
+      onChangeText={(v) => {
+        setAdjustQty(v);
+        if (errors.adjust) setErrors((prev) => ({ ...prev, adjust: null }));
+      }}
+      placeholder="Enter quantity"
+      placeholderTextColor={COLORS.textMuted}
+      keyboardType="number-pad"
+      onFocus={handleFieldFocus}
+    />
+
+    <View style={styles.adjustBtnRow}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.adjustBtn,
+          styles.adjustBtnSubtract,
+          pressed && styles.adjustBtnPressed,
+        ]}
+        onPress={() => applyAdjustment(-1)}
+        accessibilityLabel="Subtract stock"
+      >
+        <Ionicons name="remove-circle-outline" size={20} color={COLORS.danger} />
+        <Text style={[styles.adjustBtnText, { color: COLORS.danger }]}>
+          Subtract
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.adjustBtn,
+          styles.adjustBtnAdd,
+          pressed && styles.adjustBtnPressed,
+        ]}
+        onPress={() => applyAdjustment(1)}
+        accessibilityLabel="Add stock"
+      >
+        <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
+        <Text style={[styles.adjustBtnText, { color: "#FFFFFF" }]}>Add</Text>
+      </Pressable>
+    </View>
+
+    {!!errors.adjust && <Text style={styles.errorText}>{errors.adjust}</Text>}
+
+  
+  </View>
+)}
+
+        <View style={styles.row}>
+          <View style={styles.halfField}>
+            <FormField
+              label="Barcode Qty"
+              value={form.barcode_qty}
+              onChangeText={(v) => updateField("barcode_qty", v)}
+              placeholder="e.g. 1"
+              keyboardType="number-pad"
+              onFocus={handleFieldFocus}
+              error={errors.barcode_qty}
+            />
+          </View>
+        </View>
+
+        <View style={styles.toggleRow}>
+          <View>
+            <Text style={styles.label}>Active</Text>
+            <Text style={styles.toggleHint}>
+              {form.is_active
+                ? "Visible and sellable in POS"
+                : "Hidden from POS"}
+            </Text>
+          </View>
+
+          <Switch
+            value={form.is_active}
+            onValueChange={(v) => updateField("is_active", v)}
+            trackColor={{
+              false: COLORS.divider,
+              true: COLORS.blue,
+            }}
+            thumbColor={form.is_active ? COLORS.card : "#F1F5F9"}
+          />
+        </View>
+      </View>
+    </View>
+  </>
+)}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -765,6 +884,120 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
+  
+stockControl: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+},
+
+stockButton: {
+  width: 36,
+  height: 42,
+  borderRadius: 8,
+  backgroundColor: COLORS.navy,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+stockInput: {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 19,
+  color: COLORS.textPrimary,
+  textAlign: "center",
+  paddingVertical: SPACING.sm,
+  borderBottomWidth: 1.5,
+  borderBottomColor: COLORS.divider,
+},
+   // ── Adjust stock (edit mode) ──
+  adjustCard: {
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    padding: SPACING.lg,
+    marginBottom: SPACING.xl,
+  },
+  adjustHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: SPACING.md,
+  },
+  adjustTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+  },
+  adjustCurrent: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.textMuted,
+  },
+  adjustInput: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: COLORS.textPrimary,
+    textAlign: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    borderRadius: 10,
+    paddingVertical: 12,
+    marginBottom: SPACING.md,
+  },
+  adjustBtnRow: {
+    flexDirection: "row",
+    gap: SPACING.md,
+  },
+  adjustBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 46,
+    borderRadius: 10,
+  },
+  adjustBtnSubtract: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: COLORS.danger,
+  },
+  adjustBtnAdd: {
+    backgroundColor: COLORS.navy,
+  },
+  adjustBtnPressed: {
+    opacity: 0.75,
+  },
+  adjustBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  pendingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#EFF6FF",
+    borderRadius: 8,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
+    marginTop: SPACING.md,
+  },
+  pendingText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.textPrimary,
+  },
+  pendingReset: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.blue,
+    marginLeft: SPACING.md,
+  },
+
 });
 
 export default ProductFormScreen;

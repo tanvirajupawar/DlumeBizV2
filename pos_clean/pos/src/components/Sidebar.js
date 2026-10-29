@@ -114,11 +114,7 @@ const navItems = isCalculatorMode
         label: "Payments",
         icon: "cash-multiple",
       },
-      {
-        key: "Refund",
-        label: "Refund",
-        icon: "file-document-edit-outline",
-      },
+    
     ];
 return (
     <View
