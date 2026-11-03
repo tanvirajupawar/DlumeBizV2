@@ -178,46 +178,13 @@ if (
     );
 
 
-const openingBalanceReturnRecords = await CustomerReturn.find({
-  company_id: companyId,
-  customer_id: customer._id,
-})
-  .session(session)
-  .lean();
 
-openingBalanceReturnAmount = 0;
-
-for (const returnRecord of openingBalanceReturnRecords) {
-  const returnAllocations = await CustomerReturnAllocation.find({
-    company_id: companyId,
-    return_id: returnRecord._id,
-  })
-    .session(session)
-    .lean();
-
-  const allocatedToInvoices = returnAllocations.reduce(
-    (total, allocation) =>
-      total + Number(allocation.amount || 0),
-    0
-  );
-
-  const returnTotal = Number(
-    returnRecord.total_amount ?? returnRecord.totalAmount ?? 0
-  );
-
-  openingBalanceReturnAmount += Math.max(
-    0,
-    Math.round((returnTotal - allocatedToInvoices) * 100) / 100
-  );
-}
 
 const remainingOpeningBalance = Math.max(
   0,
   Math.round(
     (
-      originalOpeningBalance -
-      openingBalancePaid -
-      openingBalanceReturnAmount
+   originalOpeningBalance - openingBalancePaid
     ) * 100
   ) / 100
 );
@@ -374,29 +341,38 @@ if (sale) {
 // --------------------------------
 
 if (customer) {
-  const customerVersion =
-    customer.account_version || 0;
+  const customerVersion = Number(
+    customer.account_version || 0
+  );
 
-  const customerVersionUpdate =
-    await Customer.updateOne(
-      {
-        _id: customer._id,
-        company_id: companyId,
-        account_version: customerVersion,
+  const customerVersionFilter = {
+    _id: customer._id,
+    company_id: companyId,
+    ...(customer.account_version == null
+      ? {
+          $or: [
+            { account_version: { $exists: false } },
+            { account_version: null },
+          ],
+        }
+      : { account_version: customerVersion }),
+  };
+
+  const customerVersionUpdate = await Customer.updateOne(
+    customerVersionFilter,
+    {
+      $inc: {
+        account_version: 1,
       },
-      {
-        $inc: {
-          account_version: 1,
-        },
-      },
-      {
-        session,
-      }
-    );
+    },
+    {
+      session,
+    }
+  );
 
   if (customerVersionUpdate.modifiedCount !== 1) {
     throw new Error(
-      "Customer account was updated by another payment. Please try again."
+      "Customer account was updated by another transaction. Please try again."
     );
   }
 }
@@ -465,9 +441,7 @@ const remainingOpeningBalance = Math.max(
   0,
   Math.round(
     (
-      originalOpeningBalance -
-      openingBalancePaid -
-      openingBalanceReturnAmount
+   originalOpeningBalance - openingBalancePaid
     ) * 100
   ) / 100
 );
@@ -650,9 +624,7 @@ const remainingOpeningBalance = Math.max(
   0,
   Math.round(
     (
-      originalOpeningBalance -
-      openingBalancePaid -
-      openingBalanceReturnAmount
+    originalOpeningBalance - openingBalancePaid
     ) * 100
   ) / 100
 );

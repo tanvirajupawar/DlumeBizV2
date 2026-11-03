@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useAuth } from "../../context/AuthContext";
-import { createSale } from "../../api/sale";
+import { createSale, updateSale } from "../../api/sale";
 import { createPayment } from "../../api/payment";
 import { buildReceipt } from "../../utils/buildReceipt";
 
@@ -47,8 +47,15 @@ const {
   paymentAmount = 0,
   transportationDetails = "",
   saleDate = null,
+  editInvoiceId = null,
 } = route.params || {};
 
+const isEditMode = !!editInvoiceId;
+console.log("✏️ CHECKOUT EDIT DEBUG:", {
+  editInvoiceId,
+  isEditMode,
+  saleMode,
+});
 
   const [processingMethod, setProcessingMethod] = useState(null);
 
@@ -57,6 +64,8 @@ const {
 
   const handleSelectPayment = async (option) => {
     if (processingMethod) return;
+
+    setProcessingMethod(option.id);
     if (!["PRODUCT", "CALCULATOR"].includes(saleMode)) {
   setProcessingMethod(null);
   Alert.alert(
@@ -67,7 +76,7 @@ const {
 }
 
     let sale;
-    let actualPaidAmount = Number(paymentAmount) || 0;
+let actualPaidAmount = 0;
 
     try {
       if (!saleRef.current) {
@@ -112,44 +121,57 @@ items: cartItems.map((item) => ({
 console.log("📅 DATE SENT TO BACKEND:", payload.invoice_date);
 console.log("📦 FULL SALE PAYLOAD:", JSON.stringify(payload, null, 2));
 
-        const response = await createSale(payload);
-
-        console.log(
-  "🛍️ CHECK BAG VALUES:",
-  cartItems.map((item) => ({
-    product: item.product || item.name || item.product_name,
-    qty: item.qty,
-    bags: item.bags,
-    units_per_bag: item.units_per_bag,
-  }))
-);
-
-        
-        saleRef.current = response.data || response;
-      }
-      sale = saleRef.current;
-
-   
-const paymentDate =
-  saleDate ||
-  sale.invoice_date ||
-  new Date().toISOString().slice(0, 10);
-
-console.log("📅 PAYMENT DATE SENT TO BACKEND:", paymentDate);
-
-const paymentResponse = await createPayment({
-  sale_id: sale.sale_id || sale._id,
-  amount: Number(paymentAmount) || 0,
-  payment_method: option.api,
-  payment_date: paymentDate,
+console.log("🚀 SALE API:", {
+  action: isEditMode ? "UPDATE SALE" : "CREATE SALE",
+  editInvoiceId,
 });
 
+console.log("🟡 CHECKOUT SUBMIT STARTED");
+console.log("🟡 IS EDIT MODE:", isEditMode);
+console.log("🟡 EDIT INVOICE ID:", editInvoiceId);
+console.log("🟡 PAYLOAD:", JSON.stringify(payload, null, 2));
 
-      actualPaidAmount = Number(
-        paymentResponse?.data?.payment_amount ??
-          paymentResponse?.payment_amount ??
-          paymentAmount
-      );
+let response;
+
+if (isEditMode) {
+  console.log("🟠 CALLING updateSale API");
+
+  response = await updateSale(editInvoiceId, payload);
+
+  console.log("🟢 updateSale RESPONSE:", JSON.stringify(response, null, 2));
+} else {
+  console.log("🟠 CALLING createSale API");
+
+  response = await createSale(payload);
+
+  console.log("🟢 createSale RESPONSE:", JSON.stringify(response, null, 2));
+}
+
+saleRef.current = response.data || response;
+      }
+sale = saleRef.current;
+
+if (!isEditMode) {
+  const paymentDate =
+    saleDate ||
+    sale.invoice_date ||
+    new Date().toISOString().slice(0, 10);
+
+  console.log("📅 PAYMENT DATE SENT TO BACKEND:", paymentDate);
+
+  const paymentResponse = await createPayment({
+    sale_id: sale.sale_id || sale._id,
+    amount: Number(paymentAmount) || 0,
+    payment_method: option.api,
+    payment_date: paymentDate,
+  });
+
+  actualPaidAmount = Number(
+    paymentResponse?.data?.payment_amount ??
+      paymentResponse?.payment_amount ??
+      paymentAmount
+  );
+}
     } catch (err) {
       console.log("❌ CHECKOUT ERROR:", JSON.stringify(err?.response?.data, null, 2));
       setProcessingMethod(null);
@@ -161,17 +183,21 @@ const paymentResponse = await createPayment({
     }
 
     // Sale succeeded – printing happens on the success screen
+    setProcessingMethod(null);
     navigation.replace("POSPaymentSuccess", {
-      saleId: sale._id,
-      saleCompleted: sale,
-      receipt: buildReceipt({
+     saleId: sale._id || sale.sale_id,
+  saleCompleted: sale,
+isInvoiceUpdated: isEditMode,
+receipt: buildReceipt({
         company,
         user,
         customer,
         sale,
         saleDate,
         cartItems,
-        paymentMode: option.mode,
+      paymentMode: isEditMode
+  ? "Invoice Updated — No New Payment Received"
+  : option.mode,
         transportationDetails,
         subtotal,
         discountValue: Number(discount) || 0,
@@ -181,8 +207,8 @@ const paymentResponse = await createPayment({
         totalPayable: Number(totalPayable) || 0,
         amountPaid: actualPaidAmount,
       }),
-      amount: actualPaidAmount,
-      paymentMethod: option.id,
+    amount: actualPaidAmount,
+paymentMethod: isEditMode ? "NONE" : option.id,
     });
   };
 

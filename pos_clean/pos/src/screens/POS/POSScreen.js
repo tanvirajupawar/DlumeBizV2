@@ -37,6 +37,7 @@ import CustomerFormScreen from "../Customer/CustomerFormScreen";
 import CustomerPaymentModal from "../../components/CustomerPaymentModal";
 import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
+import { updateSale } from "../../api/sale";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
 import {
@@ -96,8 +97,7 @@ const CACHE_KEYS = {
 
 const ALL_ITEMS_CATEGORY = { _id: "all", category: "All Items" };
 
-const toYMD = (d) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 
 export default function POSScreen() {
   const { logout, user } = useAuth();
@@ -117,8 +117,11 @@ const [paymentFetching, setPaymentFetching] = useState(false);
 const [customerPaymentResult, setCustomerPaymentResult] = useState(null);
   const [profileVisible, setProfileVisible] = useState(false);
   const [searchText, setSearchText] = useState("");
-  const [cartItems, setCartItems] = useState([]);
-  const [isReturnMode, setIsReturnMode] = useState(false);
+const [cartItems, setCartItems] = useState([]);
+const [isReturnMode, setIsReturnMode] = useState(false);
+
+// Invoice currently being edited
+const [editingInvoice, setEditingInvoice] = useState(null);
   
 const [transportModalVisible, setTransportModalVisible] = useState(false);
 const [transportationDetails, setTransportationDetails] = useState("");
@@ -687,6 +690,24 @@ if (!isScanningRef.current && searchText.trim()) {
   const route = useRoute();
 
 
+const editInvoice = editingInvoice || route.params?.editInvoice || null;
+const isEditMode = !!editInvoice;
+
+const handleEditInvoice = (invoice) => {
+  const invoiceId = invoice?._id || invoice?.id || invoice?.sale_id;
+
+  if (!invoiceId) {
+    Alert.alert("Error", "Invoice ID not found.");
+    return;
+  }
+
+
+
+  setEditingInvoice(invoice);
+  setActiveNav("cart");
+};
+
+
 
   const isCalculatorMode =
   user?.company?.pos_mode === "CALCULATOR";
@@ -1203,6 +1224,138 @@ const openingBalance = broughtForwardTransactions.reduce(
     }, [])
   );
 
+
+
+const editInvoiceLoadedRef = useRef(null);
+
+useEffect(() => {
+  if (!editInvoice) {
+    editInvoiceLoadedRef.current = null;
+    return;
+  }
+
+  const invoiceId =
+    editInvoice._id ||
+    editInvoice.id ||
+    editInvoice.sale_id;
+
+  if (!invoiceId) {
+    console.log("EDIT INVOICE: Invoice ID missing", editInvoice);
+    return;
+  }
+
+  // Do not load the same invoice into the cart repeatedly.
+  if (editInvoiceLoadedRef.current === String(invoiceId)) {
+    return;
+  }
+
+  const invoiceItems = Array.isArray(editInvoice.items)
+    ? editInvoice.items
+    : [];
+
+  if (invoiceItems.length === 0) {
+    console.log("EDIT INVOICE: No items found", editInvoice);
+    return;
+  }
+
+  const customerValue =
+    editInvoice.customer_id ||
+    editInvoice.customer ||
+    editInvoice.customerId;
+
+  const customerId =
+    typeof customerValue === "object"
+      ? customerValue?._id || customerValue?.id
+      : customerValue;
+
+  const matchedCustomer = customers.find(
+    (customer) =>
+      String(customer._id || customer.id) === String(customerId)
+  );
+
+  const prefilledItems = invoiceItems.map((item, index) => {
+    const productId =
+      item.product_id?._id ||
+      item.product_id ||
+      item.product?._id ||
+      item.product?.id ||
+      item._id ||
+      item.id;
+
+    const matchedProduct = products.find(
+      (product) =>
+        String(product._id || product.id) === String(productId)
+    );
+
+    const qty = Number(item.qty ?? item.quantity ?? 1);
+    const price = Number(
+      item.price ??
+      item.rate ??
+      item.selling_price ??
+      item.unit_price ??
+      0
+    );
+
+    return {
+      ...(matchedProduct || {}),
+      ...item,
+      _id: matchedProduct?._id || productId || `edit-item-${index}`,
+      id: matchedProduct?.id || productId || `edit-item-${index}`,
+      product:
+        item.product_name ||
+        item.product?.product ||
+        item.product ||
+        matchedProduct?.product ||
+        item.description ||
+        item.name ||
+        "Item",
+      description: item.description || "",
+      qty,
+      price,
+    };
+  });
+
+  setCartItems(prefilledItems);
+  setSelectedCustomer(matchedCustomer || customerValue || WALK_IN_CUSTOMER);
+
+  const invoiceDate =
+    editInvoice.invoice_date ||
+    editInvoice.sale_date ||
+    editInvoice.createdAt ||
+    editInvoice.created_at ||
+    editInvoice.date;
+
+  if (invoiceDate) {
+    const parsedDate = new Date(invoiceDate);
+
+    if (!Number.isNaN(parsedDate.getTime())) {
+      setSaleDate(toYMD(parsedDate));
+    }
+  }
+
+  setTransportationDetails(
+    editInvoice.transportationDetails ||
+    editInvoice.transportation_details ||
+    ""
+  );
+
+  setTransportationInput(
+    editInvoice.transportationDetails ||
+    editInvoice.transportation_details ||
+    ""
+  );
+
+  setIsReturnMode(false);
+  setActiveNav("cart");
+  setSearchText("");
+  setActiveCategory("all");
+
+  editInvoiceLoadedRef.current = String(invoiceId);
+
+  console.log("EDIT INVOICE: Prefilled POS cart", prefilledItems);
+}, [editInvoice, products, customers]);
+
+
   const handleSearchChange = (text) => {
     setSearchText(text);
   };
@@ -1553,9 +1706,118 @@ useEffect(() => {
   };
 }, [products]);
 
+const handleUpdateInvoice = async (confirmRefund = false) => {
+  if (!isEditMode) return;
 
+  const invoiceId =
+    editInvoice?._id ||
+    editInvoice?.id ||
+    editInvoice?.sale_id;
 
+  if (!invoiceId) {
+    Alert.alert("Error", "Invoice ID not found.");
+    return;
+  }
 
+  if (!cartItems.length) {
+    Alert.alert("Empty Cart", "Please add items before updating the invoice.");
+    return;
+  }
+
+  const customerId =
+    selectedCustomer === WALK_IN_CUSTOMER
+      ? null
+      : selectedCustomer?._id || selectedCustomer?.id;
+
+  const items = cartItems.map((item) => ({
+    product_id: item.product_id || item._id || item.id || null,
+    product_name: item.product || item.product_name || item.name || "Item",
+    description: item.description || "",
+    qty: Number(item.qty) || 0,
+    rate: Number(item.price ?? item.rate ?? 0),
+  }));
+
+  if (items.some((item) => item.qty <= 0 || item.rate < 0)) {
+    Alert.alert("Invalid Items", "Please check item quantities and prices.");
+    return;
+  }
+
+  try {
+    setPaymentLoading(true);
+
+    const payload = {
+      customer_id: customerId,
+      items,
+      discount_amount: Number(discount) || 0,
+      transportationDetails,
+      invoice_date: saleDate || toYMD(new Date()),
+      ...(confirmRefund ? { confirmRefund: true } : {}),
+    };
+
+    await updateSale(invoiceId, payload);
+
+    Alert.alert("Invoice Updated", "Invoice updated successfully.", [
+      {
+        text: "OK",
+        onPress: () => {
+          setCartItems([]);
+          setSelectedCustomer(WALK_IN_CUSTOMER);
+          setEditingInvoice(null);
+          editInvoiceLoadedRef.current = null;
+          setTransportationDetails("");
+          setTransportationInput("");
+          setSaleDate(null);
+          setPaymentLoading(false);
+          setActiveNav("cart");
+        },
+      },
+    ]);
+  } catch (error) {
+    const errorData = error?.response?.data || {};
+
+    console.log(
+      "❌ INVOICE UPDATE ERROR:",
+      errorData || error?.message || error
+    );
+
+    if (errorData.requiresRefund && !confirmRefund) {
+      const refundAmount = Number(errorData.refundAmount || 0);
+
+      Alert.alert(
+        "Excess Payment – Refund Required",
+        `₹${refundAmount.toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} is excess and must be refunded. Do you want to confirm this refund and update the invoice?`,
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+         {
+  text: "Confirm Refund",
+  onPress: () => {
+    console.log("🔥 CONFIRM REFUND BUTTON PRESSED");
+    handleUpdateInvoice(true);
+  },
+},
+        ]
+      );
+
+      return;
+    }
+
+    Alert.alert(
+      "Update Failed",
+      errorData.message ||
+        errorData.error ||
+        error?.message ||
+        "Unable to update invoice."
+    );
+  } finally {
+    setPaymentLoading(false);
+  }
+};
 
 const handlePaymentSubmit = async ({
   amount,
@@ -1799,9 +2061,13 @@ onSelectCustomer={(customer) => {
                  grandTotal={grandTotal}
 transportationDetails={transportationDetails}
                   checkoutDisabled={activeCartItems.length === 0}
-checkoutLabel={isReturnMode ? "RETURN" : "Checkout"}
+checkoutLabel={
+  isReturnMode ? "RETURN" : isEditMode ? "UPDATE" : "Checkout"
+}
 isReturnMode={isReturnMode}
-checkoutLoading={isReturnMode && isSubmittingReturn}
+checkoutLoading={
+  isReturnMode ? isSubmittingReturn : isEditMode && paymentLoading
+}
 
 onCheckout={async () => {
 if (isReturnMode) {
@@ -1947,35 +2213,46 @@ navigation.navigate("POSReturnSuccess", {
       setIsSubmittingReturn(false);
     }
 
+     return;
+  }
+
+  // Edit mode: update the existing invoice directly without checkout or payment.
+  if (isEditMode) {
+    await handleUpdateInvoice();
     return;
   }
 
-console.log(
-  "🛒 CART ITEMS BEFORE PAYMENT SUMMARY:",
+  console.log(
+    "🛒 CART ITEMS BEFORE PAYMENT SUMMARY:",
   JSON.stringify(cartItems, null, 2)
 );
 
 
 // All sales — including walk-in customers — go through Payment Summary.
 navigation.navigate("PaymentSummary", {
-
-  
   cartItems: cartItems.map((item) => ({
     ...item,
     qty: Number(item.qty) || 0,
     bags: Number(item.bags) || 0,
     units_per_bag: Number(item.units_per_bag) || 0,
   })),
+
   customer:
     selectedCustomer === WALK_IN_CUSTOMER
       ? null
       : selectedCustomer,
+
   subtotal,
   tax,
   discount,
   grandTotal,
   transportationDetails,
   saleDate: saleDate || toYMD(new Date()),
+
+  // NEW: preserve the invoice being edited
+  editInvoiceId: isEditMode
+    ? editInvoice?._id || editInvoice?.id || editInvoice?.sale_id
+    : null,
 });
 
 
@@ -2088,6 +2365,7 @@ navigation.navigate("PaymentSummary", {
         setShowInactiveCustomersPage(false);
         setActiveNav("customers");
       }}
+            onEditInvoice={handleEditInvoice}
     />
   </View>
 )}

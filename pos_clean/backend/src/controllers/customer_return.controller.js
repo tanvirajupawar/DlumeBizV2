@@ -74,9 +74,13 @@ const customerVersionFilter = {
 const customerVersionUpdate = await Customer.updateOne(
   customerVersionFilter,
   {
-    $inc: { account_version: 1 },
+    $inc: {
+      account_version: 1,
+    },
   },
-  { session }
+  {
+    session,
+  }
 );
 
 if (customerVersionUpdate.modifiedCount !== 1) {
@@ -84,7 +88,6 @@ if (customerVersionUpdate.modifiedCount !== 1) {
     "Customer account was updated by another transaction. Please try again."
   );
 }
-
 
     const preparedItems = [];
     let totalAmount = 0;
@@ -151,77 +154,110 @@ preparedItems.push({
       });
     }
 
-    // Calculate outstanding using the existing accounting approach.
-    const sales = await Sale.find({
-      company_id: companyId,
-      customer_id,
-    })
-      .session(session)
-      .lean();
+// Calculate outstanding using actual payment and return allocations.
 
-    const saleIds = sales.map((sale) => sale._id);
-
-    const allocations = saleIds.length
-      ? await PaymentAllocation.find({
-          company_id: companyId,
-          sale_id: { $in: saleIds },
-        })
-          .session(session)
-          .lean()
-      : [];
-
-
-
-    const totalSales = sales.reduce(
-      (sum, sale) => sum + Number(sale.total_amount || 0),
-      0
-    );
-
-    const invoicePayments = allocations.reduce(
-      (sum, allocation) => sum + Number(allocation.amount || 0),
-      0
-    );
-
-const openingBalancePayments = await CustomerLedger.find({
+// 1. Get all customer invoices.
+const sales = await Sale.find({
   company_id: companyId,
   customer_id,
-  type: "PAYMENT",
-  sale_id: null,
 })
+  .session(session)
+  .lean();
+
+const saleIds = sales.map((sale) => sale._id);
+
+// 2. Get payment allocations against invoices.
+const paymentAllocations = saleIds.length
+  ? await PaymentAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: saleIds },
+    })
       .session(session)
-      .lean();
+      .lean()
+  : [];
 
-    const openingBalancePaid = openingBalancePayments.reduce(
-      (sum, entry) => sum + Number(entry.credit || 0),
-      0
-    );
+const invoicePayments = paymentAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
+  0
+);
 
-    const openingBalance = Number(customer.opening_balance || 0);
-
-// Calculate previous returns for this customer.
+// 3. Get previous customer returns.
 const previousReturns = await CustomerReturn.find({
   company_id: companyId,
   customer_id,
 })
   .session(session)
-  .select("total_amount")
+  .select("_id")
   .lean();
 
-const totalPreviousReturns = previousReturns.reduce(
-  (sum, item) => sum + Number(item.total_amount || 0),
+const previousReturnIds = previousReturns.map(
+  (returnRecord) => returnRecord._id
+);
+
+// 4. Get only return amounts allocated to invoices.
+const previousReturnAllocations =
+  previousReturnIds.length && saleIds.length
+    ? await CustomerReturnAllocation.find({
+        company_id: companyId,
+        return_id: { $in: previousReturnIds },
+        sale_id: { $in: saleIds },
+      })
+        .session(session)
+        .lean()
+    : [];
+
+const invoiceReturns = previousReturnAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
   0
 );
 
-// Current outstanding after payments and previous returns.
+// 5. Get payments applied to the opening balance.
+const openingBalancePayments = await CustomerLedger.find({
+  company_id: companyId,
+  customer_id,
+  type: "PAYMENT",
+  sale_id: null,
+  description: "Payment against opening balance",
+})
+  .session(session)
+  .lean();
+
+const openingBalancePaid = openingBalancePayments.reduce(
+  (sum, entry) =>
+    sum + Number(entry.credit || 0),
+  0
+);
+
+// 6. Calculate remaining opening balance.
+// Unallocated return credit is NOT deducted here.
+const openingBalance = Number(customer.opening_balance || 0);
+
+const remainingOpeningBalance = Math.max(
+  0,
+  openingBalance - openingBalancePaid
+);
+
+// 7. Calculate invoice outstanding after allocated payments and returns.
+const totalSales = sales.reduce(
+  (sum, sale) =>
+    sum + Number(sale.total_amount || 0),
+  0
+);
+
+const invoiceOutstanding = Math.max(
+  0,
+  totalSales - invoicePayments - invoiceReturns
+);
+
+// 8. Final customer outstanding.
 const currentOutstanding = Math.max(
   0,
   Math.round(
     (
-      openingBalance -
-      openingBalancePaid +
-      totalSales -
-      invoicePayments -
-      totalPreviousReturns
+      remainingOpeningBalance +
+      invoiceOutstanding
     ) * 100
   ) / 100
 );

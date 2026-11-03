@@ -3,6 +3,8 @@ import Sale from "../models/sale.model.js";
 import Payment from "../models/payment.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
 import CustomerReturn from "../models/customer_return.model.js";
+import CustomerReturnAllocation from "../models/customer_return_allocation.model.js";
+import CustomerLedger from "../models/customer_ledger.model.js";
 
 export const getCustomerLedger = async (req, res) => {
   try {
@@ -41,9 +43,14 @@ export const getCustomerLedger = async (req, res) => {
     // 3. GET PAYMENT ALLOCATIONS
     // --------------------------------
 
-    const allocations = await PaymentAllocation.find({
+const customerSaleIds = sales.map((sale) => sale._id);
+
+const allocations = customerSaleIds.length
+  ? await PaymentAllocation.find({
       company_id: companyId,
-    }).lean();
+      sale_id: { $in: customerSaleIds },
+    }).lean()
+  : [];
 
     // --------------------------------
     // 4. GET CUSTOMER PAYMENTS
@@ -57,6 +64,18 @@ export const getCustomerLedger = async (req, res) => {
       .lean();
 
 
+      // --------------------------------
+// GET CUSTOMER REFUNDS
+// --------------------------------
+
+const refunds = await CustomerLedger.find({
+  company_id: companyId,
+  customer_id: customer._id,
+  type: "REFUND",
+})
+  .sort({ transaction_date: 1 })
+  .lean();
+
 
 // --------------------------------
 // 4A. GET CUSTOMER RETURNS
@@ -69,21 +88,41 @@ const customerReturns = await CustomerReturn.find({
   .sort({ return_date: 1 })
   .lean();
 
-    // --------------------------------
-    // 5. BUILD SALE PAYMENT MAP
-    // --------------------------------
 
-    const salePaidMap = {};
 
-    for (const allocation of allocations) {
-      const saleId = allocation.sale_id.toString();
+  // --------------------------------
+// 4B. GET CUSTOMER RETURN ALLOCATIONS
+// --------------------------------
 
-      if (!salePaidMap[saleId]) {
-        salePaidMap[saleId] = 0;
-      }
+const returnAllocations = customerSaleIds.length
+  ? await CustomerReturnAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: customerSaleIds },
+    }).lean()
+  : [];
 
-      salePaidMap[saleId] += Number(allocation.amount || 0);
-    }
+// --------------------------------
+// 5. BUILD SALE PAYMENT AND RETURN MAPS
+// --------------------------------
+
+const salePaidMap = {};
+const saleReturnedMap = {};
+
+for (const allocation of allocations) {
+  const saleId = allocation.sale_id.toString();
+
+  salePaidMap[saleId] =
+    (salePaidMap[saleId] || 0) +
+    Number(allocation.amount || 0);
+}
+
+for (const allocation of returnAllocations) {
+  const saleId = allocation.sale_id.toString();
+
+  saleReturnedMap[saleId] =
+    (saleReturnedMap[saleId] || 0) +
+    Number(allocation.amount || 0);
+}
 
     // --------------------------------
     // 6. BUILD TRANSACTIONS
@@ -92,26 +131,41 @@ const customerReturns = await CustomerReturn.find({
     const transactions = [];
 
     for (const sale of sales) {
-      const paidAmount = salePaidMap[sale._id.toString()] || 0;
-      const balanceAmount = sale.total_amount - paidAmount;
+const saleId = sale._id.toString();
 
-      let status = "UNPAID";
+const paidAmount = Number(salePaidMap[saleId] || 0);
+const returnedAmount = Number(saleReturnedMap[saleId] || 0);
 
-      if (balanceAmount === 0) {
-        status = "PAID";
-      } else if (paidAmount > 0) {
-        status = "PARTIAL";
-      }
+const balanceAmount = Number(
+  Math.max(
+    0,
+    Number(sale.total_amount || 0) -
+      paidAmount -
+      returnedAmount
+  ).toFixed(2)
+);
+
+const creditedAmount = paidAmount + returnedAmount;
+
+let status = "UNPAID";
+
+if (balanceAmount === 0) {
+  status = "PAID";
+} else if (creditedAmount > 0) {
+  status = "PARTIAL";
+}
 
       transactions.push({
         type: "SALE",
         date: sale.invoice_date,
+          createdAt: sale.createdAt,
         reference: sale.invoice_no,
         sale_id: sale._id,
-        amount: sale.total_amount,
-        paid_amount: paidAmount,
-        balance_amount: balanceAmount,
-        status,
+      amount: Number(sale.total_amount || 0),
+paid_amount: paidAmount,
+returned_amount: returnedAmount,
+balance_amount: balanceAmount,
+status,
       });
     }
 
@@ -123,6 +177,7 @@ const customerReturns = await CustomerReturn.find({
       transactions.push({
         type: "PAYMENT",
         date: payment.payment_date,
+        createdAt: payment.createdAt,
         reference: payment._id,
         payment_id: payment._id,
         amount: payment.amount,
@@ -140,6 +195,7 @@ for (const customerReturn of customerReturns) {
   transactions.push({
     type: "RETURN",
     date: customerReturn.return_date,
+    createdAt: customerReturn.createdAt,
     reference: customerReturn.return_no,
     return_id: customerReturn._id,
     amount: Number(customerReturn.total_amount || 0),
@@ -148,13 +204,60 @@ for (const customerReturn of customerReturns) {
   });
 }
 
+
+// --------------------------------
+// 7B. ADD REFUND TRANSACTIONS
+// --------------------------------
+
+for (const refund of refunds) {
+  const originalPayment = payments.find(
+    (payment) =>
+      String(payment._id) === String(refund.payment_id)
+  );
+
+  const originalSale = sales.find(
+    (sale) =>
+      String(sale._id) === String(refund.source_sale_id)
+  );
+
+  transactions.push({
+    type: "REFUND",
+    date: refund.transaction_date,
+    createdAt: refund.createdAt,
+    reference: originalSale?.invoice_no || refund._id,
+    refund_id: refund._id,
+    payment_id: refund.payment_id,
+    sale_id: refund.source_sale_id,
+
+    amount: Number(refund.debit || 0),
+
+    refund_method: originalPayment?.payment_method || "",
+    invoice_no: originalSale?.invoice_no || "",
+
+    description:
+      refund.description || "Excess payment refunded",
+  });
+}
+
     // --------------------------------
     // 8. SORT ALL TRANSACTIONS
     // --------------------------------
 
-    transactions.sort(
-      (a, b) => new Date(a.date) - new Date(b.date)
-    );
+ // Newest transaction first, mixing all transaction types
+transactions.sort((a, b) => {
+  const dateA = new Date(a.date || 0).getTime();
+  const dateB = new Date(b.date || 0).getTime();
+
+  if (dateA !== dateB) {
+    return dateB - dateA;
+  }
+
+  // Same transaction date: use record creation time
+  const createdA = new Date(a.createdAt || 0).getTime();
+  const createdB = new Date(b.createdAt || 0).getTime();
+
+  return createdB - createdA;
+});
 
     // --------------------------------
     // 9. CALCULATE SUMMARY
@@ -178,12 +281,24 @@ const totalReturns = customerReturns.reduce(
   0
 );
 
-const outstanding = Number(
-  Math.max(
-    0,
-    openingBalance + totalSales - totalPayments - totalReturns
+const totalRefunds = refunds.reduce(
+  (total, refund) => total + Number(refund.debit || 0),
+  0
+);
+
+const netOutstanding = Number(
+  (
+    openingBalance +
+    totalSales -
+    totalPayments -
+    totalReturns +
+    totalRefunds
   ).toFixed(2)
 );
+
+const outstanding = Math.max(0, netOutstanding);
+
+const customerCredit = Math.max(0, -netOutstanding);
 
     // --------------------------------
     // 10. RESPONSE
@@ -201,12 +316,15 @@ const outstanding = Number(
           customer_name: customer.customer_name,
         },
 
-        summary: {
-          opening_balance: openingBalance,
-          total_sales: totalSales,
-          total_payments: totalPayments,
-          outstanding,
-        },
+       summary: {
+  opening_balance: openingBalance,
+  total_sales: totalSales,
+  total_payments: totalPayments,
+  total_returns: totalReturns,
+  total_refunds: totalRefunds,
+  outstanding,
+  customer_credit: customerCredit,
+},
 
         transactions,
       },

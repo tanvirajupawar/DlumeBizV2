@@ -38,3 +38,8 @@ export const fetchCustomerPayments = async (customerId) => {
   const response = await api.get(`/payments?customer_id=${customerId}`);
   return response.data;
 };
+
+export const fetchCustomerLedger = async (customerId) => {
+  const response = await api.get(`/customer-ledger/${customerId}`);
+  return response.data;
+};

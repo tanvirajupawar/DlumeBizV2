@@ -31,12 +31,13 @@ const ACCENT = "#16A34A";
 const ACCENT_DARK = "#0F3D27";
 const AUTO_NAVIGATE_DELAY = 60000;
 export default function POSPaymentSuccessScreen({ route, navigation }) {
-  const {
-    amount = 0,
-    paymentMethod,
-    saleCompleted = null,
-    receipt = null,
-  } = route.params || {};
+const {
+  amount = 0,
+  paymentMethod,
+  saleCompleted = null,
+  receipt = null,
+  isInvoiceUpdated = false,
+} = route.params || {};
 
   // ── Print state ──────────────────────────────────────────────────────────
   // idle -> printing -> done | error. Tapping again from "done" or "error"
@@ -183,7 +184,7 @@ export default function POSPaymentSuccessScreen({ route, navigation }) {
 const paymentLabel = PAYMENT_LABELS[paymentMethod] || paymentMethod;
 const paymentIcon = PAYMENT_ICONS[paymentMethod] || "wallet-outline";
 
-const isCreditSave = Number(amount) === 0;
+const isCreditSave = !isInvoiceUpdated && Number(amount) === 0;
 const savedOrderAmount = Number(
   saleCompleted?.total_amount ||
   saleCompleted?.totalAmount ||
@@ -252,15 +253,21 @@ const savedOrderAmount = Number(
           ]}
         >
       <Text style={styles.eyebrow}>
-  {isCreditSave ? "ORDER SAVED" : "PAYMENT SUCCESSFUL"}
+ {isInvoiceUpdated
+  ? "INVOICE UPDATED"
+  : isCreditSave
+  ? "ORDER SAVED"
+  : "PAYMENT SUCCESSFUL"}
 </Text>
 
-<Text style={styles.amount}>
-  {"\u20B9"}
-  {isCreditSave
-    ? savedOrderAmount.toFixed(2)
-    : Number(amount).toFixed(2)}
-</Text>
+{!isInvoiceUpdated && (
+  <Text style={styles.amount}>
+    {"\u20B9"}
+    {isCreditSave
+      ? savedOrderAmount.toFixed(2)
+      : Number(amount).toFixed(2)}
+  </Text>
+)}
 
 <View style={styles.methodPill}>
   <MaterialCommunityIcons
@@ -270,9 +277,11 @@ const savedOrderAmount = Number(
   />
 
   <Text style={styles.methodPillText}>
-    {isCreditSave
-      ? "Full amount added to outstanding"
-      : `Paid via ${paymentLabel}`}
+   {isInvoiceUpdated
+  ? "Invoice Updated — No New Payment Received"
+  : isCreditSave
+  ? "Full amount added to outstanding"
+  : `Paid via ${paymentLabel}`}
   </Text>
 </View>
 

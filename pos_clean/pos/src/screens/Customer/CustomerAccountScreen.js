@@ -23,10 +23,9 @@ import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import {
   fetchCustomer,
   fetchCustomerInvoices,
-  fetchCustomerPayments,
+  fetchCustomerLedger,
 } from "../../api/customer";
 
-import { fetchCustomerReturns } from "../../api/customerReturn";
 
 const SUMMARY_PANEL_WIDTH = 380;
 const DANGER = "#DC2626";
@@ -61,13 +60,15 @@ const isOpening = (i) =>
     i?.type === "opening"
   );
 const entryDate = (i) =>
+  i.date ||
+  i.refund_date ||
+  i.return_date ||
+  i.payment_date ||
+  i.invoice_date ||
+  i.order_date ||
   i.createdAt ||
   i.created_at ||
-  i.createdOn ||
-  i.invoice_date ||
-  i.payment_date ||
-  i.order_date ||
-  i.date;
+  i.createdOn;
 
   
 const totalOf = (i) => {
@@ -167,151 +168,157 @@ export default function CustomerAccountScreen({
     }
     let active = true;
 
-    const loadAccount = async () => {
-      try {
-        setLoading(true);
-      const [
-  customerRes,
-  invoicesRes,
-  paymentsRes,
-  returnsRes,
-] = await Promise.all([
-  fetchCustomer(customerId).catch((err) => {
-    console.log("❌ CUSTOMER FETCH ERROR:", err?.response?.data || err?.message);
-    return null;
-  }),
-  fetchCustomerInvoices(customerId).catch((err) => {
-    console.log("❌ INVOICE FETCH ERROR:", err?.response?.data || err?.message);
-    return null;
-  }),
-  fetchCustomerPayments(customerId).catch((err) => {
-    console.log("❌ PAYMENT FETCH ERROR:", err?.response?.data || err?.message);
-    return null;
-  }),
-  fetchCustomerReturns(customerId).catch((err) => {
-    console.log("❌ CUSTOMER RETURNS FETCH ERROR:", err?.response?.data || err?.message);
-    return null;
-  }),
-]);
-        if (!active) return;
+const loadAccount = async () => {
+  try {
+    setLoading(true);
 
-        const customerData = customerRes?.data?.data ?? customerRes?.data ?? null;
-        if (customerData && typeof customerData === "object") {
-          setCustomer((prev) => ({ ...prev, ...customerData }));
+    const [customerRes, invoicesRes, ledgerRes] = await Promise.all([
+      fetchCustomer(customerId).catch((err) => {
+        console.log("❌ CUSTOMER FETCH ERROR:", err?.response?.data || err?.message);
+        return null;
+      }),
+
+      fetchCustomerInvoices(customerId).catch((err) => {
+        console.log("❌ INVOICE FETCH ERROR:", err?.response?.data || err?.message);
+        return null;
+      }),
+
+      fetchCustomerLedger(customerId).catch((err) => {
+        console.log("❌ CUSTOMER LEDGER FETCH ERROR:", err?.response?.data || err?.message);
+        return null;
+      }),
+    ]);
+
+    if (!active) return;
+
+    // CUSTOMER
+    const customerData = customerRes?.data?.data ?? customerRes?.data ?? null;
+
+    if (customerData && typeof customerData === "object") {
+      setCustomer((prev) => ({ ...prev, ...customerData }));
+    }
+
+    // INVOICES
+    const invoices = invoicesRes?.data?.data ?? invoicesRes?.data ?? [];
+
+    // LEDGER RESPONSE
+    const ledgerData = ledgerRes?.data?.data ?? ledgerRes?.data ?? {};
+    const transactions = Array.isArray(ledgerData.transactions)
+      ? ledgerData.transactions
+      : [];
+
+    const rawCustomer =
+      customerData?.customer ||
+      customerData?.data ||
+      customerData ||
+      {};
+
+    // OPENING BALANCE
+    const openingBalance = Number(
+      rawCustomer.opening_balance ??
+      rawCustomer.openingBalance ??
+      rawCustomer.opening_balance_amount ??
+      rawCustomer.openingAmount ??
+      rawCustomer.opening ??
+      rawCustomer.previous_balance ??
+      rawCustomer.previousBalance ??
+      0
+    );
+
+    const openingEntry =
+      openingBalance !== 0
+        ? [
+            {
+              _id: `opening-${customerId}`,
+              id: `opening-${customerId}`,
+              type: "opening",
+              isOpeningBalance: true,
+              opening_balance: true,
+              openingBalance: true,
+              original_opening_balance: openingBalance,
+              balance_amount: openingBalance,
+              total_amount: openingBalance,
+              amount: openingBalance,
+              date:
+                rawCustomer.opening_balance_date ||
+                rawCustomer.openingBalanceDate ||
+                rawCustomer.createdAt ||
+                rawCustomer.created_at ||
+                new Date(),
+            },
+          ]
+        : [];
+
+    // CONVERT BACKEND LEDGER TRANSACTIONS INTO SCREEN ENTRIES
+    const ledgerEntries = transactions
+      .map((transaction) => {
+        if (transaction.type === "SALE") {
+          const invoice = invoices.find(
+            (item) =>
+              String(item._id || item.id) === String(transaction.sale_id)
+          );
+
+          return {
+            ...invoice,
+            ...transaction,
+            _id: transaction.sale_id || invoice?._id,
+            type: "invoice",
+            invoice_no: transaction.reference || invoice?.invoice_no,
+            invoice_date: transaction.date,
+            total_amount: Number(transaction.amount || 0),
+            amount: Number(transaction.amount || 0),
+          };
         }
 
-      const invoices = invoicesRes?.data?.data ?? invoicesRes?.data ?? [];
+        if (transaction.type === "PAYMENT") {
+          return {
+            ...transaction,
+            _id: transaction.payment_id || transaction._id,
+            type: "payment",
+            payment_date: transaction.date,
+            amount: Number(transaction.amount || 0),
+          };
+        }
 
-      console.log(
-  "🔍 INVOICE DISCOUNT DEBUG:",
-  JSON.stringify(invoices?.[0], null, 2)
-);
+        if (transaction.type === "RETURN") {
+          return {
+            ...transaction,
+            _id: transaction.return_id || transaction._id,
+            type: "return",
+            return_date: transaction.date,
+            return_no: transaction.reference,
+            total_amount: Number(transaction.amount || 0),
+            amount: Number(transaction.amount || 0),
+          };
+        }
 
+        if (transaction.type === "REFUND") {
+          return {
+            ...transaction,
+            _id: transaction.refund_id || transaction._id,
+            type: "refund",
+            refund_date: transaction.date,
+            amount: Number(transaction.amount || 0),
+          };
+        }
 
-const payments = paymentsRes?.data?.data ?? paymentsRes?.data ?? [];
+        return null;
+      })
+      .filter(Boolean);
 
-console.log(
-  "💳 CUSTOMER PAYMENTS:",
-  JSON.stringify(payments, null, 2)
-);
+    console.log("🧾 CUSTOMER LEDGER ENTRIES:", ledgerEntries);
 
-const returns = returnsRes?.data?.data ?? returnsRes?.data ?? [];
+    setAccount([...openingEntry, ...ledgerEntries]);
 
-// ─────────────────────────────────────────────
-// OPENING BALANCE
-// ─────────────────────────────────────────────
-
-const rawCustomer =
-  customerData?.customer ||
-  customerData?.data ||
-  customerData ||
-  {};
-
-const openingBalance = Number(
-  rawCustomer.opening_balance ??
-  rawCustomer.openingBalance ??
-  rawCustomer.opening_balance_amount ??
-  rawCustomer.openingAmount ??
-  rawCustomer.opening ??
-  rawCustomer.previous_balance ??
-  rawCustomer.previousBalance ??
-  0
-);
-
-const openingBalancePaid = Number(
-  rawCustomer.opening_balance_paid || 0
-);
-
-const remainingOpeningBalance = Math.max(
-  0,
-  openingBalance - openingBalancePaid
-);
-
-console.log("🔵 CUSTOMER RESPONSE:", customerRes);
-console.log("🔵 CUSTOMER DATA:", customerData);
-console.log("🔵 OPENING BALANCE FOUND:", openingBalance);
-
-const invoiceEntries = (Array.isArray(invoices) ? invoices : []).map((x) => ({
-  ...x,
-  type: "invoice",
-}));
-
-const paymentEntries = (Array.isArray(payments) ? payments : []).map((x) => ({
-  ...x,
-  type: "payment",
-}));
-
-const returnEntries = (Array.isArray(returns) ? returns : []).map((x) => ({
-  ...x,
-  type: "return",
-}));
-
-// Always create the opening row when there is an opening balance
-
-const openingEntry =
-  openingBalance !== 0
-    ? [
-        {
-          _id: `opening-${customerId}`,
-          id: `opening-${customerId}`,
-
-          type: "opening",
-          isOpeningBalance: true,
-          opening_balance: true,
-          openingBalance: true,
-
-          // Preserve the original amount for reference.
-          original_opening_balance: openingBalance,
-
-        // Display the original opening balance in the Invoiced column.
-balance_amount: openingBalance,
-total_amount: openingBalance,
-amount: openingBalance,
-
-          date:
-            rawCustomer.opening_balance_date ||
-            rawCustomer.openingBalanceDate ||
-            rawCustomer.createdAt ||
-            rawCustomer.created_at ||
-            new Date(),
-        },
-      ]
-    : [];
-
-
-console.log("🟢 OPENING ENTRY:", openingEntry);
-setAccount([
-  ...openingEntry,
-  ...invoiceEntries,
-  ...paymentEntries,
-  ...returnEntries,
-]);
-      } catch (err) {
-        console.log("❌ CUSTOMER ACCOUNT ERROR:", err?.response?.data || err?.message);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
+  } catch (err) {
+    console.log(
+      "❌ CUSTOMER ACCOUNT ERROR:",
+      err?.response?.data || err?.message
+    );
+  } finally {
+    if (active) setLoading(false);
+  }
+};
 
     console.log(
   "🔥 OPENED CUSTOMER:",
@@ -367,11 +374,17 @@ bal += isCredit ? -amt : amt;
           if (isOpening(i)) return true;
         return toKey(entryDate(i)) >= selectedDate;
         })
-        .sort((a, b) => {
-          if (isOpening(a) !== isOpening(b)) return isOpening(a) ? 1 : -1;
-          const diff = dayOf(b) - dayOf(a);
-          return diff !== 0 ? diff : createdOf(b) - createdOf(a);
-        }),
+      .sort((a, b) => {
+  if (isOpening(a) !== isOpening(b)) {
+    return isOpening(a) ? 1 : -1;
+  }
+
+  // Newest transaction date first, regardless of type
+  const dateA = new Date(entryDate(a) || 0).getTime();
+  const dateB = new Date(entryDate(b) || 0).getTime();
+
+  return dateB - dateA;
+}),
     [withBalance, selectedDate]
   );
 
@@ -423,6 +436,22 @@ const summaryRows = useMemo(
           };
         }
 
+        if (i.type === "refund") {
+  return {
+    id: i._key,
+    kind: "refund",
+    date: entryDate(i),
+    title: "Refund Paid",
+    note: [
+      i.refund_method || "",
+      i.invoice_no ? `Invoice: ${i.invoice_no}` : "",
+    ]
+      .filter(Boolean)
+      .join(" • "),
+    amount: Number(i.amount || 0),
+  };
+}
+
         // Invoice: show discounted/payable amount.
 
 const discount = Number(
@@ -450,8 +479,11 @@ return {
     () =>
       summaryRows.reduce(
         (acc, r) => {
-        if (r.kind === "invoice") acc.invoiced += r.amount;
-else acc.received += r.amount;
+if (r.kind === "invoice" || r.kind === "refund") {
+  acc.invoiced += r.amount;
+} else {
+  acc.received += r.amount;
+}
           return acc;
         },
         { invoiced: 0, received: 0 }
@@ -620,7 +652,7 @@ rows: transactionRows,
           ${r.note ? " – " + esc(r.note) : ""}
         </td>
         <td class="r">
-          ${r.kind === "invoice" ? money(r.amount) : ""}
+        ${r.kind === "invoice" || r.kind === "refund" ? money(r.amount) : ""}
         </td>
         <td class="r">
           ${
@@ -722,9 +754,10 @@ const companyAddress = companyInfo.address || "";
     const tableRows = rows
       .map((item) => {
         const opening = isOpening(item);
-        const isPayment = item.type === "payment";
-        const isReturn = item.type === "return";
-        const isCredit = isPayment || isReturn;
+      const isPayment = item.type === "payment";
+const isReturn = item.type === "return";
+const isRefund = item.type === "refund";
+const isCredit = isPayment || isReturn;
 
         const amount = opening
           ? openingAmount(item)
@@ -747,16 +780,18 @@ const companyAddress = companyInfo.address || "";
                 entryDate(item)
             );
 
-        const refNo = opening
-          ? "—"
-          : isPayment
-          ? item.receipt_no ||
-            item.receiptNo ||
-            item.payment_no ||
-            "—"
-          : isReturn
-          ? item.return_no || "—"
-          : item.invoice_no || item.invoiceNo || "—";
+const refNo = opening
+  ? "—"
+  : isPayment
+  ? item.receipt_no ||
+    item.receiptNo ||
+    item.payment_no ||
+    "—"
+  : isReturn
+  ? item.return_no || "—"
+  : isRefund
+  ? item.invoice_no || item.reference || "—"
+  : item.invoice_no || item.invoiceNo || "—";
 
         let particulars = "";
         let description = "";
@@ -776,11 +811,25 @@ const companyAddress = companyInfo.address || "";
             .join(" - ");
           description = "—";
           rowClass = "payment";
-        } else if (isReturn) {
-          particulars = item.return_no || "Customer Return";
-          description = item.description || "—";
-          rowClass = "return";
-        } else {
+ } else if (isReturn) {
+  particulars = item.return_no || "Customer Return";
+  description = item.description || "—";
+  rowClass = "return";
+
+} else if (isRefund) {
+  particulars = "Refund Paid";
+
+  description = [
+    item.refund_method || "",
+    item.invoice_no ? `Invoice: ${item.invoice_no}` : "",
+    item.description || "",
+  ]
+    .filter(Boolean)
+    .join(" - ") || "—";
+
+  rowClass = "refund";
+
+} else {
           particulars = `Invoice - ${money(amount)}`;
           const details = itemsOf(item);
 
@@ -984,6 +1033,11 @@ const companyAddress = companyInfo.address || "";
               background: #fff3e7;
               font-weight: 700;
             }
+              .refund {
+  background: #FEE2E2;
+  color: #DC2626;
+  font-weight: 700;
+}
 
             .product {
               background: #ffffff;
@@ -1176,6 +1230,7 @@ await Sharing.shareAsync(pdfUri, {
   const renderEntry = ({ item, index }) => {
     const opening = isOpening(item);
     const isPay = item.type === "payment";
+const isRefund = item.type === "refund";
     const details = !isPay && !opening ? itemsOf(item) : [];
     const expandable = details.length > 0;
     const expanded = expandedKey === item._key;
@@ -1193,6 +1248,17 @@ await Sharing.shareAsync(pdfUri, {
   sub = expandable
     ? `${details.length} item${details.length > 1 ? "s" : ""}`
     : item.description || "";
+
+} else if (isRefund) {
+  ref = "Refund Paid";
+
+  sub = [
+    item.refund_method || "",
+    item.invoice_no ? `Invoice: ${item.invoice_no}` : "",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
 } else {
   ref = item.invoice_no || item.invoiceNo || "Invoice";
   sub = expandable
@@ -1219,7 +1285,10 @@ style={[
   styles.tdStrong,
   !isPay &&
     !opening && {
-      color: item.type === "return" ? DANGER : COLORS.primary,
+    color:
+  item.type === "return" || isRefund
+    ? DANGER
+    : COLORS.primary,
     },
 ]}                numberOfLines={1}
               >
@@ -1507,7 +1576,7 @@ style={[
                       {r.note ? `  \u2022  ${r.note}` : ""}
                     </Text>
                     <Text style={styles.panelItemAmount}>
-                      {r.kind === "payment" ? "\u2212 " : ""}
+                    {r.kind === "payment" || r.kind === "return" ? "\u2212 " : ""}
                       {money(r.amount)}
                     </Text>
                   </View>

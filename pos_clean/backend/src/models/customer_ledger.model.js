@@ -22,7 +22,7 @@ const customerLedgerSchema = new mongoose.Schema(
     // RETURN = returned goods reduce customer outstanding
     type: {
       type: String,
-      enum: ["SALE", "PAYMENT", "RETURN"],
+     enum: ["SALE", "PAYMENT", "RETURN", "REFUND"],
       required: true,
     },
 
@@ -33,6 +33,12 @@ const customerLedgerSchema = new mongoose.Schema(
       ref: "Sale",
       default: null,
     },
+
+    source_sale_id: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Sale",
+  default: null,
+},
 
     // For PAYMENT entries
     payment_id: {

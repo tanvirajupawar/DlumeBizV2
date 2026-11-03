@@ -15,7 +15,7 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { getCreditSummary } from "../../api/invoice";
-import { createSale } from "../../api/sale";
+import { createSale, updateSale } from "../../api/sale";
 import { useAuth } from "../../context/AuthContext";
 import { buildReceipt } from "../../utils/buildReceipt";
 
@@ -57,7 +57,10 @@ const {
   grandTotal = 0,
   transportationDetails = "",
   saleDate = null,
+  editInvoiceId = null,
 } = route.params || {};
+
+const isEditMode = !!editInvoiceId;
 
 
   const customerId = customer?._id || customer?.id || null;
@@ -110,10 +113,11 @@ const {
       async () => {
         try {
           setRefreshing(true);
-          const response = await getCreditSummary(
-            customerId,
-            discountedGrandTotal
-          );
+        const response = await getCreditSummary(
+  customerId,
+  discountedGrandTotal,
+  isEditMode ? editInvoiceId : null
+);
           if (cancelled) return;
           setSummary(response.data);
           setLoadError(false);
@@ -194,8 +198,10 @@ const goToCheckout = () => {
     totalPayable,
     paymentAmount: round2(amount),
     transportationDetails,
+    editInvoiceId,
     saleDate: saleDate || new Date().toLocaleDateString("en-CA"),
   });
+  
 };
 
 
@@ -212,21 +218,53 @@ const payload = {
   invoice_date: saleDate || new Date().toLocaleDateString("en-CA"),
 
 invoice_date: saleDate || new Date().toISOString().slice(0, 10),
+
+
   subtotal: Number(subtotal) || 0,
   discount_amount: discountValue,
   total_amount: discountedGrandTotal,
   transportation_details: transportationDetails,
 
   // Keep your existing items mapping unchanged.
-items: cartItems.map((item) => ({
-  ...item,
-  qty: Number(item.qty) || 0,
-  bags: Number(item.bags) || 0,
-  units_per_bag: Number(item.units_per_bag) || 0,
-})),
+
+items: cartItems.map((item) => {
+  const qty = Number(item.qty) || 0;
+
+  const rate = Number(
+    item.price ??
+    item.salePrice ??
+    item.mrp ??
+    item.rate ??
+    0
+  );
+
+  if (!Number.isFinite(rate) || rate < 0) {
+    throw new Error(
+      `Invalid rate for product: ${item.product || item.name || "Unknown"}`
+    );
+  }
+
+  return {
+    product_id: item._id || item.id || item.product_id,
+    product_name:
+      item.product || item.name || item.product_name || "",
+    description: item.description || "",
+    qty,
+    rate,
+    amount: qty * rate,
+    unit: item.unit || "PCS",
+    hsn: item.hsn || "",
+    gst_rate: 0,
+    bags: Number(item.bags) || 0,
+    units_per_bag: Number(item.units_per_bag) || 0,
+  };
+}),
+
 };
 
-      const response = await createSale(payload);
+    const response = isEditMode
+  ? await updateSale(editInvoiceId, payload)
+  : await createSale(payload);
       const sale = response.data || response;
 
       navigation.replace("POSPaymentSuccess", {

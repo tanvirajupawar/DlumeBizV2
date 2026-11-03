@@ -6,6 +6,10 @@ import Customer from "../models/customer.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
 import Product from "../models/product.model.js";
+import CustomerReturnAllocation from "../models/customer_return_allocation.model.js";
+import mongoose from "mongoose";
+import Payment from "../models/payment.model.js";
+import Refund from "../models/refund.model.js";
 
 
 export const createSale = async (req, res) => {
@@ -289,33 +293,66 @@ description: item.description || "",
         0
       );
 
-      // Calculate payments allocated to those invoices
-      const previousAllocations = previousSaleIds.length
-        ? await PaymentAllocation.find({
-            company_id: companyId,
-            sale_id: { $in: previousSaleIds },
-          }).lean()
-        : [];
+// Calculate payments allocated to previous invoices
+const previousAllocations = previousSaleIds.length
+  ? await PaymentAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: previousSaleIds },
+    }).lean()
+  : [];
 
-      const previousPaymentsTotal = previousAllocations.reduce(
-        (sum, allocation) =>
-          sum + Number(allocation.amount || 0),
-        0
-      );
+const previousPaymentsTotal = previousAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
+  0
+);
 
-      const openingBalance = Number(
-        customerForSale.opening_balance || 0
-      );
+// Calculate returns allocated to previous invoices
+const previousReturnAllocations = previousSaleIds.length
+  ? await CustomerReturnAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: previousSaleIds },
+    }).lean()
+  : [];
 
-      previousOutstanding = Number(
-        (
-          openingBalance +
-          previousSalesTotal -
-          previousPaymentsTotal
-        ).toFixed(2)
-      );
-    }
+const previousReturnsTotal = previousReturnAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
+  0
+);
 
+const openingBalance = Number(
+  customerForSale.opening_balance || 0
+);
+
+// Payments already applied to opening balance
+const openingBalancePayments = await CustomerLedger.find({
+  company_id: companyId,
+  customer_id: normalizedCustomerId,
+  type: "PAYMENT",
+  sale_id: null,
+  description: "Payment against opening balance",
+}).lean();
+
+const openingBalancePaid = openingBalancePayments.reduce(
+  (sum, entry) => sum + Number(entry.credit || 0),
+  0
+);
+
+const remainingOpeningBalance = Math.max(
+  0,
+  Number((openingBalance - openingBalancePaid).toFixed(2))
+);
+
+previousOutstanding = Number(
+  (
+    remainingOpeningBalance +
+    previousSalesTotal -
+    previousPaymentsTotal -
+    previousReturnsTotal
+  ).toFixed(2)
+);
+}
 
     // --------------------------------
     // 8. GENERATE INVOICE NUMBER
@@ -544,6 +581,16 @@ const saleItems = saleItemsRaw.map((item) => {
         }).lean()
       : [];
 
+
+      // GET RETURN ALLOCATIONS
+const returnAllocations = saleIds.length
+  ? await CustomerReturnAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: saleIds },
+    }).lean()
+  : [];
+
+
     // --------------------------------
     // CALCULATE PAID BY SALE
     // --------------------------------
@@ -559,6 +606,24 @@ const saleItems = saleItemsRaw.map((item) => {
 
       paidBySale[saleId] += Number(allocation.amount || 0);
     }
+
+
+    // --------------------------------
+// CALCULATE RETURNED BY SALE
+// --------------------------------
+
+const returnedBySale = {};
+
+for (const allocation of returnAllocations) {
+  const saleId = allocation.sale_id.toString();
+
+  if (!returnedBySale[saleId]) {
+    returnedBySale[saleId] = 0;
+  }
+
+  returnedBySale[saleId] += Number(allocation.amount || 0);
+}
+
 
     // --------------------------------
     // GROUP ITEMS BY SALE
@@ -583,28 +648,32 @@ const saleItems = saleItemsRaw.map((item) => {
     const data = sales.map((sale) => {
       const saleId = sale._id.toString();
 
-      const totalAmount = Number(sale.total_amount || 0);
-      const paidAmount = Number(paidBySale[saleId] || 0);
+  const totalAmount = Number(sale.total_amount || 0);
+const paidAmount = Number(paidBySale[saleId] || 0);
+const returnedAmount = Number(returnedBySale[saleId] || 0);
 
-      const remainingAmount = Math.max(
-        0,
-        totalAmount - paidAmount
-      );
+const remainingAmount = Math.max(
+  0,
+  Number(
+    (totalAmount - paidAmount - returnedAmount).toFixed(2)
+  )
+);
 
-      let status = "UNPAID";
+let status = "UNPAID";
 
-      if (remainingAmount === 0) {
-        status = "PAID";
-      } else if (paidAmount > 0) {
-        status = "PARTIAL";
-      }
+if (remainingAmount === 0) {
+  status = "PAID";
+} else if (paidAmount > 0 || returnedAmount > 0) {
+  status = "PARTIAL";
+}
 
       return {
         ...sale,
 
-        paid_amount: Number(paidAmount.toFixed(2)),
-        remaining_amount: Number(remainingAmount.toFixed(2)),
-        status,
+      paid_amount: Number(paidAmount.toFixed(2)),
+returned_amount: Number(returnedAmount.toFixed(2)),
+remaining_amount: Number(remainingAmount.toFixed(2)),
+status,
 
         items: itemsBySale[saleId] || [],
       };
@@ -654,8 +723,13 @@ export const deleteSale = async (req, res) => {
       });
     }
 
-    // Do not delete invoices with recorded payments
+// Do not delete invoices with payment or return allocations.
 const allocations = await PaymentAllocation.find({
+  company_id: companyId,
+  sale_id: sale._id,
+}).lean();
+
+const returnAllocations = await CustomerReturnAllocation.find({
   company_id: companyId,
   sale_id: sale._id,
 }).lean();
@@ -664,14 +738,15 @@ console.log("========== DELETE INVOICE DEBUG ==========");
 console.log("Invoice No:", sale.invoice_no);
 console.log("Sale ID:", sale._id.toString());
 console.log("Company ID:", companyId);
-console.log("Allocations:", JSON.stringify(allocations, null, 2));
+console.log("Payment Allocations:", JSON.stringify(allocations, null, 2));
+console.log("Return Allocations:", JSON.stringify(returnAllocations, null, 2));
 console.log("==========================================");
 
-if (allocations.length > 0) {
+if (allocations.length > 0 || returnAllocations.length > 0) {
   return res.status(409).json({
     success: false,
     message:
-      "This invoice has payment records. Record the appropriate reversal before deleting it.",
+      "This invoice has payment or return records. Reverse or resolve the related records before deleting it.",
   });
 }
 
@@ -773,3 +848,938 @@ if (allocations.length > 0) {
     });
   }
 };
+
+
+
+export const updateSale = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  let responseData = null;
+  let responseStatus = 200;
+  let responseError = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const companyId = req.user.company_id;
+      const { id } = req.params;
+
+      const fail = (status, message) => {
+        const error = new Error(message);
+        error.statusCode = status;
+        throw error;
+      };
+
+      if (!/^[a-f\d]{24}$/i.test(id)) {
+        fail(400, "Invalid invoice ID");
+      }
+
+      const sale = await Sale.findOne({
+        _id: id,
+        company_id: companyId,
+      }).session(session);
+
+      if (!sale) fail(404, "Invoice not found");
+
+const {
+  source = sale.source,
+  sale_mode = sale.sale_mode,
+  customer_id = sale.customer_id,
+  items,
+  discount_amount = 0,
+  transportation_details = "",
+  invoice_date,
+  confirmRefund = false,
+} = req.body;
+
+console.log("🔥 CONFIRM REFUND VALUE:", confirmRefund);
+console.log("🔥 UPDATE REQUEST BODY:", req.body);
+
+
+      if (!["POS", "MOBILE"].includes(source)) {
+        fail(400, "Invalid sale source");
+      }
+
+      if (sale_mode !== sale.sale_mode) {
+        fail(400, "Changing the invoice sale mode is not allowed.");
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        fail(400, "At least one sale item is required");
+      }
+
+      const company = await Company.findById(companyId).session(session);
+
+      if (!company || company.pos_mode !== sale_mode) {
+        fail(400, "Company POS mode does not match this invoice.");
+      }
+
+      const normalizedCustomerId =
+        customer_id === "walk-in" || !customer_id
+          ? null
+          : customer_id;
+
+      const oldPaymentAllocations = await PaymentAllocation.find({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session).lean();
+
+
+
+
+const oldOpeningBalancePayments = normalizedCustomerId
+  ? await CustomerLedger.find({
+      company_id: companyId,
+      customer_id: normalizedCustomerId,
+      type: "PAYMENT",
+      source_sale_id: sale._id,
+      sale_id: null,
+      description: "Payment against opening balance",
+    })
+      .session(session)
+      .lean()
+  : [];
+
+
+      const oldReturnAllocations = await CustomerReturnAllocation.find({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session).lean();
+
+      if (
+        (oldPaymentAllocations.length || oldReturnAllocations.length) &&
+        String(normalizedCustomerId || "") !==
+          String(sale.customer_id || "")
+      ) {
+        fail(
+          409,
+          "Customer cannot be changed because this invoice has payment or return history."
+        );
+      }
+
+      let customer = null;
+
+      if (normalizedCustomerId) {
+        customer = await Customer.findOne({
+          _id: normalizedCustomerId,
+          company_id: companyId,
+          is_active: true,
+        }).session(session);
+
+        if (!customer) fail(404, "Customer not found");
+      }
+
+      const discount = Number(discount_amount);
+
+      if (!Number.isFinite(discount) || discount < 0) {
+        fail(400, "Invalid discount amount");
+      }
+
+      const preparedItems = [];
+      let subtotal = 0;
+
+      for (const item of items) {
+        const qty = Number(item.qty);
+        const rate = Number(item.rate);
+
+        if (!Number.isFinite(qty) || qty <= 0) {
+          fail(400, "Item quantity must be greater than 0");
+        }
+
+        if (!Number.isFinite(rate) || rate < 0) {
+          fail(400, "Item rate cannot be negative");
+        }
+
+        let product = null;
+
+        if (sale_mode === "PRODUCT") {
+          if (!item.product_id) {
+            fail(400, "product_id is required for PRODUCT sale");
+          }
+
+          product = await Product.findOne({
+            _id: item.product_id,
+            company_id: companyId,
+          }).session(session).lean();
+
+          if (!product) fail(404, "Product not found");
+        } else if (item.product_id) {
+          fail(400, "product_id is not allowed for CALCULATOR sale");
+        }
+
+        const amount = Number((qty * rate).toFixed(2));
+        subtotal += amount;
+
+        preparedItems.push({
+          company_id: companyId,
+          product_id: sale_mode === "PRODUCT" ? item.product_id : null,
+          product_name:
+            item.product_name || item.product || product?.product || "",
+          type:
+            item.type ||
+            item.product_type ||
+            product?.type ||
+            product?.product_type ||
+            "",
+          size:
+            item.size ||
+            item.product_size ||
+            product?.size ||
+            product?.product_size ||
+            "",
+          description: item.description || "",
+          qty,
+          bags: Number(item.bags) || 0,
+          units_per_bag: Number(item.units_per_bag) || 0,
+          rate,
+          amount,
+          unit: item.unit || "",
+          hsn: item.hsn || "",
+          gst_rate: 0,
+        });
+      }
+
+      subtotal = Number(subtotal.toFixed(2));
+
+      if (discount > subtotal) {
+        fail(400, "Discount cannot be greater than subtotal");
+      }
+
+      const totalAmount = Number((subtotal - discount).toFixed(2));
+
+      let selectedInvoiceDate = sale.invoice_date;
+
+      if (invoice_date) {
+        const parsedDate = new Date(invoice_date);
+
+        if (Number.isNaN(parsedDate.getTime())) {
+          fail(400, "Invalid invoice date");
+        }
+
+        selectedInvoiceDate = parsedDate;
+      }
+
+      // ------------------------------------------------
+      // 1. LOAD CUSTOMER INVOICES AND THEIR ALLOCATIONS
+      // ------------------------------------------------
+
+      const customerSales = normalizedCustomerId
+        ? await Sale.find({
+            company_id: companyId,
+            customer_id: normalizedCustomerId,
+            _id: { $ne: sale._id },
+          })
+            .sort({ invoice_date: 1, _id: 1 })
+            .session(session)
+            .lean()
+        : [];
+
+      const otherSaleIds = customerSales.map((s) => s._id);
+
+      const otherPaymentAllocations = otherSaleIds.length
+        ? await PaymentAllocation.find({
+            company_id: companyId,
+            sale_id: { $in: otherSaleIds },
+          }).session(session).lean()
+        : [];
+
+      const otherReturnAllocations = otherSaleIds.length
+        ? await CustomerReturnAllocation.find({
+            company_id: companyId,
+            sale_id: { $in: otherSaleIds },
+          }).session(session).lean()
+        : [];
+
+      // Remove this invoice's old allocations from the allocation
+      // calculation. They will be redistributed below.
+      const paymentSources = [];
+
+      for (const allocation of oldPaymentAllocations) {
+        paymentSources.push({
+          paymentId: allocation.payment_id,
+          amount: Number(allocation.amount || 0),
+        });
+      }
+
+      // Include payment amounts previously allocated to opening balance.
+for (const entry of oldOpeningBalancePayments) {
+  paymentSources.push({
+    paymentId: entry.payment_id,
+    amount: Number(entry.credit || 0),
+  });
+}
+
+      const returnSources = [];
+
+      for (const allocation of oldReturnAllocations) {
+        returnSources.push({
+          returnId: allocation.return_id,
+          amount: Number(allocation.amount || 0),
+        });
+      }
+
+      // Group repeated allocations for the same payment/return.
+      const groupSources = (sources, key) => {
+        const grouped = new Map();
+
+        for (const sourceItem of sources) {
+          const sourceId = String(sourceItem[key]);
+          grouped.set(
+            sourceId,
+            (grouped.get(sourceId) || 0) + sourceItem.amount
+          );
+        }
+
+        return [...grouped.entries()].map(([sourceId, amount]) => ({
+          sourceId,
+          amount: Number(amount.toFixed(2)),
+        }));
+      };
+
+      const groupedPayments = groupSources(paymentSources, "paymentId");
+      const groupedReturns = groupSources(returnSources, "returnId");
+
+      // Check that source records belong to this customer/company.
+      const paymentIds = groupedPayments.map((p) => p.sourceId);
+      const returnIds = groupedReturns.map((r) => r.sourceId);
+
+      const payments = paymentIds.length
+        ? await Payment.find({
+            _id: { $in: paymentIds },
+            company_id: companyId,
+            customer_id: normalizedCustomerId,
+          }).session(session).lean()
+        : [];
+
+      if (payments.length !== paymentIds.length) {
+        fail(409, "One or more payment records could not be verified.");
+      }
+
+      const CustomerReturn = (
+        await import("../models/customer_return.model.js")
+      ).default;
+
+      const returns = returnIds.length
+        ? await CustomerReturn.find({
+            _id: { $in: returnIds },
+            company_id: companyId,
+            customer_id: normalizedCustomerId,
+          }).session(session).lean()
+        : [];
+
+      if (returns.length !== returnIds.length) {
+        fail(409, "One or more return records could not be verified.");
+      }
+
+      // ------------------------------------------------
+      // 2. CALCULATE AVAILABLE BALANCE FOR EACH INVOICE
+      // ------------------------------------------------
+
+      const paymentBySale = new Map();
+      const returnBySale = new Map();
+
+      for (const allocation of otherPaymentAllocations) {
+        const key = String(allocation.sale_id);
+        paymentBySale.set(
+          key,
+          (paymentBySale.get(key) || 0) + Number(allocation.amount || 0)
+        );
+      }
+
+      for (const allocation of otherReturnAllocations) {
+        const key = String(allocation.sale_id);
+        returnBySale.set(
+          key,
+          (returnBySale.get(key) || 0) + Number(allocation.amount || 0)
+        );
+      }
+
+      const capacities = new Map();
+
+      capacities.set(
+        String(sale._id),
+        totalAmount
+      );
+
+      for (const otherSale of customerSales) {
+        const key = String(otherSale._id);
+
+        const alreadyCredited =
+          Number(paymentBySale.get(key) || 0) +
+          Number(returnBySale.get(key) || 0);
+
+        capacities.set(
+          key,
+          Math.max(
+            0,
+            Number(
+              (Number(otherSale.total_amount || 0) - alreadyCredited).toFixed(2)
+            )
+          )
+        );
+      }
+
+
+      // Calculate opening-balance capacity.
+// Add back the amount being redistributed from this invoice.
+let openingBalanceCapacity = 0;
+
+if (normalizedCustomerId && customer) {
+  const openingBalance = Number(customer.opening_balance || 0);
+
+  const allOpeningBalancePayments = await CustomerLedger.find({
+    company_id: companyId,
+    customer_id: normalizedCustomerId,
+    type: "PAYMENT",
+    sale_id: null,
+    description: "Payment against opening balance",
+  }).session(session).lean();
+
+  const totalOpeningBalancePaid = allOpeningBalancePayments.reduce(
+    (sum, entry) => sum + Number(entry.credit || 0),
+    0
+  );
+
+  const oldOpeningBalancePaid = oldOpeningBalancePayments.reduce(
+    (sum, entry) => sum + Number(entry.credit || 0),
+    0
+  );
+
+  openingBalanceCapacity = Math.max(
+    0,
+    Number(
+      (
+        openingBalance -
+        totalOpeningBalancePaid +
+        oldOpeningBalancePaid
+      ).toFixed(2)
+    )
+  );
+}
+
+
+    // ------------------------------------------------
+// 3. REDISTRIBUTE PAYMENTS AND RETURNS CHRONOLOGICALLY
+//    EDITED INVOICE FIRST, THEN OLDEST INVOICES FIFO
+// ------------------------------------------------
+
+const paymentTargets = [];
+const returnTargets = [];
+
+const allocationSources = [
+  ...groupedPayments.map((source) => {
+    const payment = payments.find(
+      (p) => String(p._id) === source.sourceId
+    );
+
+    return {
+      type: "PAYMENT",
+      sourceId: source.sourceId,
+      amount: source.amount,
+      date: new Date(payment?.payment_date || 0),
+    };
+  }),
+
+  ...groupedReturns.map((source) => {
+    const customerReturn = returns.find(
+      (r) => String(r._id) === source.sourceId
+    );
+
+    return {
+      type: "RETURN",
+      sourceId: source.sourceId,
+      amount: source.amount,
+      date: new Date(customerReturn?.return_date || 0),
+    };
+  }),
+];
+
+// Process older credit sources first.
+// Use source ID as a stable tie-breaker for equal dates.
+allocationSources.sort((a, b) => {
+  const dateDifference = a.date.getTime() - b.date.getTime();
+
+  if (dateDifference !== 0) return dateDifference;
+
+  return a.sourceId.localeCompare(b.sourceId);
+});
+
+for (const source of allocationSources) {
+  let remaining = source.amount;
+
+  // First allocate to the edited invoice.
+  const editedCapacity = capacities.get(String(sale._id)) || 0;
+  const keepHere = Math.min(remaining, editedCapacity);
+
+  if (keepHere > 0) {
+    if (source.type === "PAYMENT") {
+      paymentTargets.push({
+        paymentId: source.sourceId,
+        saleId: sale._id,
+        amount: Number(keepHere.toFixed(2)),
+      });
+    } else {
+      returnTargets.push({
+        returnId: source.sourceId,
+        saleId: sale._id,
+        amount: Number(keepHere.toFixed(2)),
+      });
+    }
+
+    capacities.set(
+      String(sale._id),
+      Number((editedCapacity - keepHere).toFixed(2))
+    );
+
+    remaining = Number((remaining - keepHere).toFixed(2));
+  }
+
+
+    // After the edited invoice, allocate payment to opening balance.
+if (source.type === "PAYMENT" && remaining > 0) {
+  const openingBalancePayment = Math.min(
+    remaining,
+    openingBalanceCapacity
+  );
+
+  if (openingBalancePayment > 0) {
+const paymentSource = groupedPayments.find(
+  (payment) => payment.sourceId === source.sourceId
+);
+
+if (paymentSource) {
+  paymentSource.openingBalanceAmount = Number(
+    openingBalancePayment.toFixed(2)
+  );
+}
+    openingBalanceCapacity = Number(
+      (openingBalanceCapacity - openingBalancePayment).toFixed(2)
+    );
+
+    remaining = Number(
+      (remaining - openingBalancePayment).toFixed(2)
+    );
+  }
+}
+
+  // Then allocate to other outstanding invoices, oldest first.
+  for (const otherSale of customerSales) {
+    if (remaining <= 0) break;
+
+    const key = String(otherSale._id);
+    const available = capacities.get(key) || 0;
+
+    if (available <= 0) continue;
+
+    const moved = Math.min(remaining, available);
+
+    if (source.type === "PAYMENT") {
+      paymentTargets.push({
+        paymentId: source.sourceId,
+        saleId: otherSale._id,
+        amount: Number(moved.toFixed(2)),
+      });
+    } else {
+      returnTargets.push({
+        returnId: source.sourceId,
+        saleId: otherSale._id,
+        amount: Number(moved.toFixed(2)),
+      });
+    }
+
+    capacities.set(
+      key,
+      Number((available - moved).toFixed(2))
+    );
+
+    remaining = Number((remaining - moved).toFixed(2));
+  }
+
+
+
+  // Payment excess requires a refund before editing.
+// Track excess payment for refund confirmation.
+if (source.type === "PAYMENT") {
+  const paymentSource = groupedPayments.find(
+    (p) => p.sourceId === source.sourceId
+  );
+
+  paymentSource.unallocated = Number(remaining.toFixed(2));
+
+  if (paymentSource.unallocated > 0 && !confirmRefund) {
+    const error = new Error(
+      `An excess payment of ₹${paymentSource.unallocated.toFixed(2)} must be refunded.`
+    );
+
+    error.statusCode = 409;
+    error.requiresRefund = true;
+    error.refundAmount = paymentSource.unallocated;
+    error.paymentId = source.sourceId;
+
+    throw error;
+  }
+} else {
+    // Keep excess return credit unallocated.
+    const returnSource = groupedReturns.find(
+      (r) => r.sourceId === source.sourceId
+    );
+
+    returnSource.unallocated = Number(remaining.toFixed(2));
+  }
+}
+
+      // ------------------------------------------------
+      // 5. REPLACE PAYMENT ALLOCATIONS
+      // ------------------------------------------------
+
+      await PaymentAllocation.deleteMany({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session);
+
+      // Merge with any existing allocation for same payment + invoice.
+      for (const target of paymentTargets) {
+        const existing = await PaymentAllocation.findOne({
+          company_id: companyId,
+          payment_id: target.paymentId,
+          sale_id: target.saleId,
+        }).session(session);
+
+        if (existing) {
+          existing.amount = Number(
+            (Number(existing.amount || 0) + target.amount).toFixed(2)
+          );
+          await existing.save({ session });
+        } else {
+          await PaymentAllocation.create(
+            [{
+              company_id: companyId,
+              payment_id: target.paymentId,
+              sale_id: target.saleId,
+              amount: target.amount,
+            }],
+            { session }
+          );
+        }
+      }
+
+      // ------------------------------------------------
+      // 6. REPLACE RETURN ALLOCATIONS
+      // ------------------------------------------------
+
+      await CustomerReturnAllocation.deleteMany({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session);
+
+      for (const target of returnTargets) {
+        const existing = await CustomerReturnAllocation.findOne({
+          company_id: companyId,
+          return_id: target.returnId,
+          sale_id: target.saleId,
+        }).session(session);
+
+        if (existing) {
+          existing.amount = Number(
+            (Number(existing.amount || 0) + target.amount).toFixed(2)
+          );
+          await existing.save({ session });
+        } else {
+          await CustomerReturnAllocation.create(
+            [{
+              company_id: companyId,
+              return_id: target.returnId,
+              sale_id: target.saleId,
+              amount: target.amount,
+            }],
+            { session }
+          );
+        }
+      }
+
+      
+// Rebuild payment ledger entries only for real customers.
+// Walk-in invoices do not have CustomerLedger entries.
+if (normalizedCustomerId) {
+  for (const paymentSource of groupedPayments) {
+    const payment = payments.find(
+      (p) => String(p._id) === paymentSource.sourceId
+    );
+
+    if (!payment) {
+      fail(409, "Payment record not found during ledger update.");
+    }
+
+    await CustomerLedger.deleteMany({
+      company_id: companyId,
+      customer_id: normalizedCustomerId,
+      type: "PAYMENT",
+      payment_id: payment._id,
+      description: "Payment against invoice",
+    }).session(session);
+
+
+    // Remove the previous opening-balance ledger entry.
+await CustomerLedger.deleteMany({
+  company_id: companyId,
+  customer_id: normalizedCustomerId,
+  type: "PAYMENT",
+  payment_id: payment._id,
+  sale_id: null,
+  source_sale_id: sale._id,
+  description: "Payment against opening balance",
+}).session(session);
+
+// Save the amount allocated to opening balance.
+if (Number(paymentSource.openingBalanceAmount || 0) > 0) {
+  await CustomerLedger.create(
+    [{
+      company_id: companyId,
+      customer_id: normalizedCustomerId,
+      type: "PAYMENT",
+      sale_id: null,
+      source_sale_id: sale._id,
+      payment_id: payment._id,
+      debit: 0,
+      credit: Number(paymentSource.openingBalanceAmount.toFixed(2)),
+      description: "Payment against opening balance",
+      transaction_date: payment.payment_date,
+    }],
+    { session }
+  );
+}
+
+    const allPaymentAllocations = await PaymentAllocation.find({
+      company_id: companyId,
+      payment_id: payment._id,
+    })
+      .session(session)
+      .lean();
+
+    for (const allocation of allPaymentAllocations) {
+      await CustomerLedger.create(
+        [{
+          company_id: companyId,
+          customer_id: normalizedCustomerId,
+          type: "PAYMENT",
+          sale_id: allocation.sale_id,
+          payment_id: payment._id,
+          debit: 0,
+          credit: allocation.amount,
+          description: "Payment against invoice",
+          transaction_date: payment.payment_date,
+        }],
+        { session }
+      );
+    }
+
+    // Create refund ledger entry for confirmed excess payment.
+// Create refund record and ledger entry for confirmed excess payment.
+if (confirmRefund && Number(paymentSource.unallocated || 0) > 0) {
+  const refundAmount = Number(paymentSource.unallocated.toFixed(2));
+
+  await Refund.create(
+    [
+      {
+        company_id: companyId,
+        customer_id: normalizedCustomerId,
+        payment_id: payment._id,
+        sale_id: sale._id,
+        amount: refundAmount,
+        refund_method: payment.payment_method,
+        refund_date: new Date(),
+        remarks: `Excess payment refunded for invoice ${sale.invoice_no}`,
+        status: "COMPLETED",
+        refunded_by: req.user._id,
+      },
+    ],
+    { session }
+  );
+
+  await CustomerLedger.create(
+    [
+      {
+        company_id: companyId,
+        customer_id: normalizedCustomerId,
+        type: "REFUND",
+        sale_id: null,
+        source_sale_id: sale._id,
+        payment_id: payment._id,
+        debit: refundAmount,
+        credit: 0,
+        description: `Excess payment refunded for invoice ${sale.invoice_no}`,
+        transaction_date: new Date(),
+      },
+    ],
+    { session }
+  );
+}
+  }
+}
+
+
+
+      
+
+      // ------------------------------------------------
+      // 8. UPDATE STOCK
+      // ------------------------------------------------
+
+      const StockManagement = (
+        await import("../models/stock_management.model.js")
+      ).default;
+
+      const oldItems = await SaleItem.find({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session).lean();
+
+      const oldQtyByProduct = new Map();
+      const newQtyByProduct = new Map();
+
+      if (sale_mode === "PRODUCT") {
+        for (const item of oldItems) {
+          if (!item.product_id) continue;
+
+          const key = String(item.product_id);
+          oldQtyByProduct.set(
+            key,
+            (oldQtyByProduct.get(key) || 0) + Number(item.qty || 0)
+          );
+        }
+
+        for (const item of preparedItems) {
+          if (!item.product_id) continue;
+
+          const key = String(item.product_id);
+          newQtyByProduct.set(
+            key,
+            (newQtyByProduct.get(key) || 0) + Number(item.qty || 0)
+          );
+        }
+      }
+
+      const productIds = new Set([
+        ...oldQtyByProduct.keys(),
+        ...newQtyByProduct.keys(),
+      ]);
+
+      for (const productId of productIds) {
+        const difference =
+          (newQtyByProduct.get(productId) || 0) -
+          (oldQtyByProduct.get(productId) || 0);
+
+        if (difference === 0) continue;
+
+        const stock = await StockManagement.findOne({
+          company_id: companyId,
+          product_id: productId,
+        }).session(session);
+
+        if (!stock) {
+          fail(409, `Stock record missing for product ${productId}.`);
+        }
+
+        if (Number(stock.out || 0) + difference < 0) {
+          fail(409, `Cannot safely adjust stock for product ${productId}.`);
+        }
+
+        stock.out = Number(stock.out || 0) + difference;
+        await stock.save({ session });
+      }
+
+      // ------------------------------------------------
+      // 9. SAVE EDITED INVOICE WITHOUT CHANGING INVOICE NO
+      // ------------------------------------------------
+
+      sale.customer_id = normalizedCustomerId;
+      sale.source = source;
+      sale.invoice_date = selectedInvoiceDate;
+      sale.subtotal = subtotal;
+      sale.discount_amount = discount;
+      sale.total_amount = totalAmount;
+      sale.transportation_details =
+        typeof transportation_details === "string"
+          ? transportation_details.trim()
+          : "";
+
+      await sale.save({ session });
+
+      await SaleItem.deleteMany({
+        company_id: companyId,
+        sale_id: sale._id,
+      }).session(session);
+
+      await SaleItem.insertMany(
+        preparedItems.map((item) => ({
+          ...item,
+          sale_id: sale._id,
+        })),
+        { session }
+      );
+
+      // ------------------------------------------------
+      // 10. UPDATE ONLY THE SALE LEDGER ENTRY
+      // ------------------------------------------------
+
+      await CustomerLedger.deleteMany({
+        company_id: companyId,
+        sale_id: sale._id,
+        type: "SALE",
+      }).session(session);
+
+      if (company.payment_mode === "CREDIT" && sale.customer_id) {
+        await CustomerLedger.create(
+          [{
+            company_id: companyId,
+            customer_id: sale.customer_id,
+            type: "SALE",
+            sale_id: sale._id,
+            debit: totalAmount,
+            credit: 0,
+            description: `Invoice ${sale.invoice_no}`,
+            transaction_date: sale.invoice_date,
+          }],
+          { session }
+        );
+      }
+
+      responseData = {
+        sale_id: sale._id,
+        invoice_no: sale.invoice_no,
+        invoice_date: sale.invoice_date,
+        customer_id: sale.customer_id,
+        subtotal: sale.subtotal,
+        discount_amount: sale.discount_amount,
+        total_amount: sale.total_amount,
+        transportation_details: sale.transportation_details,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Invoice updated successfully",
+      data: responseData,
+    });
+  } catch (error) {
+    console.error("Update sale error:", error);
+
+    responseStatus = error.statusCode || 500;
+    responseError = error;
+
+return res.status(responseStatus).json({
+  success: false,
+  message:
+    responseStatus === 500
+      ? "Failed to update invoice"
+      : error.message,
+  error: responseStatus === 500 ? error.message : undefined,
+
+  requiresRefund: error.requiresRefund || false,
+  refundAmount: error.refundAmount || 0,
+  paymentId: error.paymentId || null,
+});
+  } finally {
+    await session.endSession();
+  }
+};
+

@@ -3,6 +3,7 @@ import Sale from "../models/sale.model.js";
 import PaymentAllocation from "../models/payment_allocation.model.js";
 import CustomerLedger from "../models/customer_ledger.model.js";
 import CustomerReturn from "../models/customer_return.model.js";
+import CustomerReturnAllocation from "../models/customer_return_allocation.model.js";
 
 export const createCustomer = async (req, res) => {
   try {
@@ -261,25 +262,35 @@ const customers = await Customer.find({
     
 
 
-// Get all previous customer returns.
-const customerReturns = await CustomerReturn.find({
-  company_id: companyId,
-  customer_id: { $in: customerIds },
-})
-  .select("customer_id total_amount")
-  .lean();
+// Get actual invoice return allocations.
+const returnAllocations = saleIds.length
+  ? await CustomerReturnAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: saleIds },
+    }).lean()
+  : [];
 
-// Calculate total returns for each customer.
+const returnedBySale = new Map();
+
+for (const allocation of returnAllocations) {
+  const saleId = allocation.sale_id.toString();
+
+  returnedBySale.set(
+    saleId,
+    (returnedBySale.get(saleId) || 0) +
+      Number(allocation.amount || 0)
+  );
+}
+
 const returnsByCustomer = new Map();
 
-for (const customerReturn of customerReturns) {
-  const customerId = customerReturn.customer_id.toString();
-
-  const current = returnsByCustomer.get(customerId) || 0;
+for (const sale of sales) {
+  const customerId = sale.customer_id.toString();
+  const returned = returnedBySale.get(sale._id.toString()) || 0;
 
   returnsByCustomer.set(
     customerId,
-    current + Number(customerReturn.total_amount || 0)
+    (returnsByCustomer.get(customerId) || 0) + returned
   );
 }
 
@@ -320,7 +331,7 @@ const customersWithOutstanding = customers.map((customer) => {
       openingBalancePaymentsByCustomer.get(customerId) || 0
     );
 
-    const totalReturns = Number(
+const totalReturns = Number(
   (returnsByCustomer.get(customerId) || 0).toFixed(2)
 );
 
@@ -338,14 +349,14 @@ const customersWithOutstanding = customers.map((customer) => {
 
   // FINAL CUSTOMER OUTSTANDING
 const outstanding = Number(
-  Math.max(
-    0,
+  (
     remainingOpeningBalance +
-      remainingInvoiceBalance -
-      totalReturns
+    Math.max(
+      0,
+      totalSales - invoicePayments - totalReturns
+    )
   ).toFixed(2)
 );
-
   return {
     ...customer,
 
@@ -474,16 +485,16 @@ export const getCustomerById = async (req, res) => {
     }).lean();
 
 
-// Get previous returns for this customer.
-const customerReturns = await CustomerReturn.find({
-  company_id: companyId,
-  customer_id: customerId,
-})
-  .select("total_amount")
-  .lean();
+const returnAllocations = saleIds.length
+  ? await CustomerReturnAllocation.find({
+      company_id: companyId,
+      sale_id: { $in: saleIds },
+    }).lean()
+  : [];
 
-const totalReturns = customerReturns.reduce(
-  (sum, item) => sum + Number(item.total_amount || 0),
+const totalReturns = returnAllocations.reduce(
+  (sum, allocation) =>
+    sum + Number(allocation.amount || 0),
   0
 );
 
@@ -511,13 +522,13 @@ const totalReturns = customerReturns.reduce(
       totalSales - invoicePayments,
       0
     );
-
 const outstanding = Number(
-  Math.max(
-    0,
+  (
     remainingOpeningBalance +
-      remainingInvoiceBalance -
-      totalReturns
+    Math.max(
+      0,
+      totalSales - invoicePayments - totalReturns
+    )
   ).toFixed(2)
 );
     // =========================

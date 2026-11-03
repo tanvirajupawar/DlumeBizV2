@@ -271,6 +271,7 @@ export const getCreditSummary = async (req, res) => {
   try {
     const companyId = req.user.company_id;
     const { customerId } = req.params;
+const { edit_invoice_id } = req.query;
 
     const currentInvoiceAmount = Number(
       req.query.current_amount || 0
@@ -328,12 +329,18 @@ export const getCreditSummary = async (req, res) => {
     );
 
     // 4. Get all existing invoices for this customer
-    const sales = await Sale.find({
-      company_id: companyId,
-      customer_id: customer._id,
-    })
-      .select("_id total_amount")
-      .lean();
+const salesFilter = {
+  company_id: companyId,
+  customer_id: customer._id,
+};
+
+if (edit_invoice_id) {
+  salesFilter._id = { $ne: edit_invoice_id };
+}
+
+const sales = await Sale.find(salesFilter)
+  .select("_id total_amount")
+  .lean();
 
     const saleIds = sales.map((sale) => sale._id);
 

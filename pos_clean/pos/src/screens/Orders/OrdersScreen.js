@@ -591,6 +591,7 @@ function MoreMenuModal({
   onClose,
   onRefund,
   onDelete,
+    onEdit,
   onPay,
   onAccount,
 payDisabled = false,
@@ -619,7 +620,7 @@ hideRefund = false,
         >
           <View style={styles.moreMenuHandle} />
 
-          {!hideRefund && (
+          {/* {!hideRefund && (
             <TouchableOpacity
               style={styles.moreMenuItem}
               onPress={() => {
@@ -636,7 +637,33 @@ hideRefund = false,
               </View>
               <Text style={styles.moreMenuItemText}>Refund</Text>
             </TouchableOpacity>
-          )}
+          )} */}
+
+
+          <TouchableOpacity
+  style={styles.moreMenuItem}
+  onPress={() => {
+    onClose();
+    onEdit?.();
+  }}
+>
+  <View
+    style={[
+      styles.moreMenuIconWrap,
+      { backgroundColor: "#FEF3C7" },
+    ]}
+  >
+    <MaterialCommunityIcons
+      name="pencil-outline"
+      size={22}
+      color="#D97706"
+    />
+  </View>
+
+  <Text style={styles.moreMenuItemText}>
+    Edit Invoice
+  </Text>
+</TouchableOpacity>
 
        
         <TouchableOpacity
@@ -669,42 +696,7 @@ hideRefund = false,
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.moreMenuItem,
-              payDisabled && { opacity: 0.45 },
-            ]}
-            disabled={payDisabled}
-            onPress={() => {
-              onClose();
-              onPay?.();
-            }}
-          >
-            <View
-              style={[
-                styles.moreMenuIconWrap,
-                {
-                  backgroundColor: payDisabled
-                    ? "#F3F4F6"
-                    : "#DCFCE7",
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="cash-multiple"
-                size={22}
-                color={payDisabled ? "#9CA3AF" : "#16A34A"}
-              />
-            </View>
-            <Text
-              style={[
-                styles.moreMenuItemText,
-                payDisabled && { color: "#9CA3AF" },
-              ]}
-            >
-              Pay
-            </Text>
-          </TouchableOpacity>
+       
 
           <TouchableOpacity
             style={styles.moreMenuItem}
@@ -1198,6 +1190,7 @@ function OrderDetail({
   returns,
   onRefundSuccess,
   onAccount,
+  onEditInvoice, // ADD THIS
 }) {  const [tab, setTab] = useState("overview");
   const isReturnOrder = order?.type === "return";
 
@@ -1468,14 +1461,7 @@ const handlePrint = async () => {
   };
 
 const handleDelete = () => {
-  if (Number(order.paidAmount || 0) > 0) {
-    Alert.alert(
-      "Cannot Delete Invoice",
-      "This invoice has received a payment and cannot be deleted."
-    );
-    return;
-  }
-
+ 
   Alert.alert(
       "Delete Invoice",
       `Are you sure you want to delete ${order.invoiceNo}?`,
@@ -1776,33 +1762,85 @@ const handleDelete = () => {
         )}
       </ScrollView>
 
-      {/* Footer */}
-      <View style={styles.footerRow}>
-        <TouchableOpacity style={styles.footerMoreBtn} onPress={() => setMoreMenuVisible(true)}>
-          <MaterialCommunityIcons name="dots-horizontal" size={22} color={colors.textSecondary} />
-          <Text style={styles.footerMoreText}>More</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.footerTextBtn, printing && { opacity: 0.6 }]}
-          onPress={handlePrint}
-          disabled={printing}
-        >
-          {printing ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Text style={styles.footerTextBtnLabel}>Print</Text>
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.footerTextBtn} onPress={handleShare}>
-          <Text style={styles.footerTextBtnLabel}>Share</Text>
-        </TouchableOpacity>
-      </View>
+    
+  {/* Footer */}
+<View style={styles.footerRow}>
+  <TouchableOpacity
+    style={styles.footerMoreBtn}
+    onPress={() => setMoreMenuVisible(true)}
+  >
+    <MaterialCommunityIcons
+      name="dots-horizontal"
+      size={22}
+      color={colors.textSecondary}
+    />
+    <Text style={styles.footerMoreText}>More</Text>
+  </TouchableOpacity>
+
+   {!isReturnOrder && (
+    <TouchableOpacity
+      style={[
+        styles.footerTextBtn,
+        (paymentSubmitting ||
+          String(order.status || "").toLowerCase() === "paid") && {
+          opacity: 0.45,
+        },
+      ]}
+      onPress={() => setPaymentModalVisible(true)}
+      disabled={
+        paymentSubmitting ||
+        String(order.status || "").toLowerCase() === "paid"
+      }
+    >
+      <Text style={styles.footerTextBtnLabel}>Pay</Text>
+    </TouchableOpacity>
+  )}
+
+  <TouchableOpacity
+    style={[styles.footerTextBtn, printing && { opacity: 0.6 }]}
+    onPress={handlePrint}
+    disabled={printing}
+  >
+    {printing ? (
+      <ActivityIndicator size="small" color={colors.primary} />
+    ) : (
+      <Text style={styles.footerTextBtnLabel}>Print</Text>
+    )}
+  </TouchableOpacity>
+
+ 
+
+  <TouchableOpacity
+    style={styles.footerTextBtn}
+    onPress={handleShare}
+  >
+    <Text style={styles.footerTextBtnLabel}>Share</Text>
+  </TouchableOpacity>
+</View>
 
 <MoreMenuModal
   visible={moreMenuVisible}
   onClose={() => setMoreMenuVisible(false)}
   onRefund={handleOpenRefundModal}
   onDelete={handleDelete}
+onEdit={() => {
+  if (order.type === "return") {
+    Alert.alert(
+      "Cannot Edit",
+      "Return transactions cannot be edited as invoices."
+    );
+    return;
+  }
+
+
+
+  if (!order.id) {
+    Alert.alert("Error", "Invoice ID not found.");
+    return;
+  }
+
+  onEditInvoice?.(order);
+}}
   onPay={() => setPaymentModalVisible(true)}
  onAccount={() => {
   if (!order.customer_id) {
@@ -1822,7 +1860,7 @@ const handleDelete = () => {
 }}
 payDisabled={String(order.status || "").toLowerCase() === "paid"}
 deleteDisabled={Number(order.paidAmount || 0) > 0}
-hideRefund={isReturnOrder || isCalculatorOrder}
+hideRefund={true}
 />
 
       <RefundItemsModal
@@ -1893,25 +1931,20 @@ await Promise.all([
 
 // ─── OrdersScreen ──────────────────────────────────────────────────────────
 
-// Cache keys — bump these if the shape of what you store ever changes, so
-// old cached payloads from a previous app version don't get force-fed into
-// new state shapes.
+
 const CACHE_KEYS = {
   orders: "orders:list:v1",
   payments: "payments:list:v1",
 };
 
-// How many order rows to render up front, and how many more to reveal each
-// time the user scrolls near the bottom. This is on top of SectionList's
-// own virtualization (which only mounts what's on/near screen) — together
-// they mean opening the screen never has to lay out the full history at
-// once, and scrolling pulls in more a chunk at a time.
+
 const PAGE_SIZE = 40;
 
 export default function OrdersScreen({
   onBack = () => {},
   onMenuPress = () => {},
   onAccount,
+  onEditInvoice,
 }) {  // ── Order list date filter (null = show all dates) ─────────────────
   // Completely independent from the Daily Sales Summary date below.
   const [listDate, setListDate] = useState(() => new Date());
@@ -2584,7 +2617,7 @@ const activeOrder = useMemo(() => {
 
         {/* Right pane */}
         <View style={styles.detailPane}>
- <OrderDetail
+<OrderDetail
   order={activeOrder}
   payments={payments}
   paymentsLoading={paymentsLoading}
@@ -2593,6 +2626,7 @@ const activeOrder = useMemo(() => {
   returns={returns}
   onRefundSuccess={fetchOrders}
   onAccount={onAccount}
+  onEditInvoice={onEditInvoice} // ADD THIS
 />
         </View>
       </View>
