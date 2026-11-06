@@ -159,9 +159,9 @@ return (
   </View>
 
   <View style={styles.identityText}>
-    <Text style={styles.appName} numberOfLines={1}>
-      {app?.name}
-    </Text>
+ <Text style={styles.appName} numberOfLines={1}>
+  {user?.company?.name || user?.company_name || "D'LumeBiz"}
+</Text>
 
     <Text style={styles.userEmail} numberOfLines={1}>
       {user?.email}

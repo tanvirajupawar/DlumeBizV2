@@ -378,6 +378,13 @@ const receiptJson =
 
 
 
+export const getReceiptPrinterType = async () => {
+  const useSunmi = await checkIsSunmiDevice();
+  return useSunmi ? "sunmi" : "bluetooth";
+};
+
+
+
 // ======================================================
 // DAILY SALES SUMMARY
 // ======================================================

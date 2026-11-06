@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+    AppState,  
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
@@ -29,6 +30,7 @@ import {
 
 const SUMMARY_PANEL_WIDTH = 380;
 const DANGER = "#DC2626";
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const money = (v) =>
   "\u20B9" +
@@ -50,6 +52,12 @@ const toKey = (d) => {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(
     x.getDate()
   ).padStart(2, "0")}`;
+};
+
+const shiftDateKey = (key, days) => {
+  const date = new Date(`${key}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return toKey(date);
 };
 
 const isOpening = (i) =>
@@ -145,7 +153,33 @@ export default function CustomerAccountScreen({
   const [showCalendar, setShowCalendar] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
+  const [showPdfFilter, setShowPdfFilter] = useState(false);
+const [showPdfCalendar, setShowPdfCalendar] = useState(false);
 
+const [pdfPreset, setPdfPreset] = useState("all");
+const [pdfFromDate, setPdfFromDate] = useState("");
+const [pdfToDate, setPdfToDate] = useState("");
+const [pdfDateStep, setPdfDateStep] = useState("from");
+const [pdfGenerating, setPdfGenerating] = useState(false);
+
+const pdfGeneratingRef = useRef(false);
+const pdfShareStartedRef = useRef(false);
+
+useEffect(() => {
+  let leftApp = false;
+  const sub = AppState.addEventListener("change", (state) => {
+    if (state === "background" || state === "inactive") leftApp = true;
+    if (state === "active" && leftApp) {
+      leftApp = false;
+      // release the lock only after the app has fully resumed from WhatsApp
+      setTimeout(() => {
+        pdfShareStartedRef.current = false;
+        pdfGeneratingRef.current = false;
+      }, 1500);
+    }
+  });
+  return () => sub.remove();
+}, []);
   // ── Side panel animation ──
   const panelAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -308,6 +342,20 @@ const loadAccount = async () => {
 
     console.log("🧾 CUSTOMER LEDGER ENTRIES:", ledgerEntries);
 
+    console.log(
+  "🔍 FULL INVOICE ITEM DATA:",
+  JSON.stringify(
+    ledgerEntries
+      .filter((e) => e.type === "invoice")
+      .map((e) => ({
+        invoice_no: e.invoice_no,
+        items: e.items,
+      })),
+    null,
+    2
+  )
+);
+
     setAccount([...openingEntry, ...ledgerEntries]);
 
   } catch (err) {
@@ -339,55 +387,75 @@ console.log(
 
   // ── Running balance (computed oldest → newest on the FULL account,
   //    so balances stay correct when a date filter is applied) ──
-  const withBalance = useMemo(() => {
-    const chrono = [...account].sort((a, b) => {
-      if (isOpening(a) !== isOpening(b)) return isOpening(a) ? -1 : 1;
-      const diff = dayOf(a) - dayOf(b);
-      return diff !== 0 ? diff : createdOf(a) - createdOf(b);
-    });
-let bal = 0;
-    return chrono.map((e, idx) => {
-   const isCredit = e.type === "payment" || e.type === "return";
+const withBalance = useMemo(() => {
+  const chrono = [...account].sort((a, b) => {
+    if (isOpening(a) !== isOpening(b)) {
+      return isOpening(a) ? -1 : 1;
+    }
 
-const amt = isOpening(e)
-  ? openingAmount(e)
-  : isCredit
-  ? Number(e.amount ?? e.total_amount ?? 0)
-  : totalOf(e);
+    const dateDiff = dayOf(a) - dayOf(b);
+    if (dateDiff !== 0) return dateDiff;
 
-bal += isCredit ? -amt : amt;
-      return {
-        ...e,
-        _key: String(e._id || e.id || `${e.type}-${idx}`),
-        _amt: amt,
-        _bal: bal,
-      };
-    });
-  }, [account]);
+    const createdDiff = createdOf(a) - createdOf(b);
+    if (createdDiff !== 0) return createdDiff;
+
+    return String(a._id || a.id || "").localeCompare(
+      String(b._id || b.id || "")
+    );
+  });
+
+  let bal = 0;
+
+  return chrono.map((e, idx) => {
+    const isCredit = e.type === "payment" || e.type === "return";
+
+    const amt = isOpening(e)
+      ? openingAmount(e)
+      : isCredit
+      ? Number(e.amount ?? e.total_amount ?? 0)
+      : totalOf(e);
+
+    bal += isCredit ? -amt : amt;
+
+    return {
+      ...e,
+      _key: String(e._id || e.id || `${e.type}-${idx}`),
+      _amt: amt,
+      _bal: bal,
+    };
+  });
+}, [account]);
 
   // ── Ledger (date-filtered, newest first) ──
-  const ledger = useMemo(
-    () =>
-      withBalance
-        .filter((i) => {
-          if (!selectedDate) return true;
-          if (isOpening(i)) return true;
+const ledger = useMemo(
+  () =>
+    withBalance
+      .filter((i) => {
+        if (!selectedDate) return true;
+        if (isOpening(i)) return true;
         return toKey(entryDate(i)) >= selectedDate;
-        })
+      })
       .sort((a, b) => {
-  if (isOpening(a) !== isOpening(b)) {
-    return isOpening(a) ? 1 : -1;
-  }
+        if (isOpening(a) !== isOpening(b)) {
+          return isOpening(a) ? 1 : -1;
+        }
 
-  // Newest transaction date first, regardless of type
-  const dateA = new Date(entryDate(a) || 0).getTime();
-  const dateB = new Date(entryDate(b) || 0).getTime();
+        // Newest date first
+        const dateDiff =
+          new Date(entryDate(b) || 0).getTime() -
+          new Date(entryDate(a) || 0).getTime();
 
-  return dateB - dateA;
-}),
-    [withBalance, selectedDate]
-  );
+        if (dateDiff !== 0) return dateDiff;
 
+        // Newest creation time first for same-day transactions
+        const createdDiff = createdOf(b) - createdOf(a);
+
+        if (createdDiff !== 0) return createdDiff;
+
+        return String(b._key).localeCompare(String(a._key));
+      }),
+  [withBalance, selectedDate]
+);
 const outstanding = useMemo(() => {
   const inv = account
     .filter((i) => i.type !== "payment" && i.type !== "return")
@@ -634,7 +702,9 @@ rows: transactionRows,
       <div class="muted">Period: ${esc(p.period)}</div>
       <table>
         <tr><th>Date</th><th>Particulars</th><th class="r">Invoice</th><th class="r">Received</th></tr>
-       
+        ${p.rows
+          .map(
+            (r) => `
 <tr>
   <td>${esc(r.date)}</td>
   ${
@@ -664,6 +734,7 @@ rows: transactionRows,
       `
   }
 </tr>
+`
           )
           .join("")}
         <tr class="tot"><td colspan="2">Total</td><td class="r">${money(p.totalInvoiced)}</td><td class="r">${money(p.totalReceived)}</td></tr>
@@ -702,14 +773,52 @@ rows: transactionRows,
 
 
 
+const handleViewLedgerPDF = () => {
+  console.log("📄 VIEW PDF BUTTON PRESSED");
 
-const handleViewLedgerPDF = async () => {
-  try {
-    if (loading) {
-      Alert.alert("Please wait", "Customer account is still loading.");
-      return;
+  pdfShareStartedRef.current = false;
+  pdfGeneratingRef.current = false;
+
+  setPdfPreset("all");
+  setPdfFromDate("");
+  setPdfToDate("");
+  setShowPdfFilter(true);
+};
+const generateLedgerPDF = async () => {
+  console.log("🧾 GENERATE PDF BUTTON PRESSED");
+
+  if (pdfGeneratingRef.current || pdfShareStartedRef.current) {
+    console.log("⚠️ PDF SHARE ALREADY STARTED - BLOCKING");
+    return;
+  }
+
+  pdfGeneratingRef.current = true;
+  setPdfGenerating(true);
+
+
+try {
+  console.log("🟢 STEP 1: ENTERED PDF TRY BLOCK");
+    if (pdfPreset === "custom") {
+      if (!pdfFromDate || !pdfToDate) {
+        Alert.alert("Select Dates", "Please select both From Date and To Date.");
+        return;
+      }
+
+      if (pdfFromDate > pdfToDate) {
+        Alert.alert("Invalid Dates", "From Date cannot be after To Date.");
+        return;
+      }
     }
+  if (loading) {
+  console.log("❌ STEP 2: ACCOUNT STILL LOADING");
+  Alert.alert("Please wait", "Customer account is still loading.");
+  return;
+}
 
+console.log("✅ STEP 2: ACCOUNT LOADED");
+console.log("🔍 STEP 3: ACCOUNT COUNT:", account.length);
+console.log("🔍 STEP 3A: BALANCE COUNT:", withBalance.length);
+console.log("🔍 STEP 3B: PDF PRESET:", pdfPreset);
     if (!withBalance.length) {
       Alert.alert("No Data", "There are no account transactions to view.");
       return;
@@ -738,16 +847,96 @@ const companyMobile =
 const companyAddress = companyInfo.address || "";
 
 
+const today = toKey(new Date());
 
-    const rows = [...withBalance].sort((a, b) => {
-      if (isOpening(a) !== isOpening(b)) {
-        return isOpening(a) ? -1 : 1;
-      }
+let fromKey = null;
+let endKey = null;
+let periodLabel = "All Dates";
+  
 
-      const diff = dayOf(a) - dayOf(b);
-      return diff !== 0 ? diff : createdOf(a) - createdOf(b);
-    });
+switch (pdfPreset) {
+  case "one_day":
+    fromKey = today;
+    endKey = today;
+    periodLabel = "Today";
+    break;
 
+  case "one_week":
+    fromKey = shiftDateKey(today, -6);
+    endKey = today;
+    periodLabel = "Last 7 Days";
+    break;
+
+  case "one_month":
+    fromKey = shiftDateKey(today, -29);
+    endKey = today;
+    periodLabel = "Last 30 Days";
+    break;
+
+  case "custom":
+    fromKey = pdfFromDate;
+    endKey = pdfToDate;
+    periodLabel = `${fmtDate(fromKey)} - ${fmtDate(endKey)}`;
+    break;
+
+  default:
+    break;
+}
+
+const allRows = [...withBalance].sort((a, b) => {
+  if (isOpening(a) !== isOpening(b)) {
+    return isOpening(a) ? -1 : 1;
+  }
+
+  const diff = dayOf(a) - dayOf(b);
+  return diff !== 0 ? diff : createdOf(a) - createdOf(b);
+});
+
+let rows = allRows;
+
+if (fromKey && endKey) {
+  const previousRows = allRows.filter(
+    (item) =>
+      !isOpening(item) &&
+      toKey(entryDate(item)) < fromKey
+  );
+
+  const openingEntry = allRows.find(isOpening);
+
+  const originalOpeningBalance = openingEntry
+    ? Number(openingEntry._bal || 0)
+    : 0;
+
+  const broughtForward = previousRows.length
+    ? Number(previousRows[previousRows.length - 1]._bal || 0)
+    : originalOpeningBalance;
+
+  const filteredRows = allRows.filter((item) => {
+    if (isOpening(item)) return false;
+
+    const key = toKey(entryDate(item));
+
+    return key >= fromKey && key <= endKey;
+  });
+
+  const openingRow = broughtForward !== 0
+    ? [{
+        _key: "period-opening",
+        type: "opening",
+        isOpeningBalance: true,
+        balance_amount: broughtForward,
+        total_amount: broughtForward,
+        amount: broughtForward,
+        _amt: broughtForward,
+        _bal: broughtForward,
+        date: fromKey,
+      }]
+    : [];
+
+  rows = [...openingRow, ...filteredRows];
+}
+
+console.log("✅ STEP 4: PDF ROWS READY:", rows.length);
     let totalDebit = 0;
     let totalCredit = 0;
 
@@ -849,8 +1038,10 @@ const refNo = opening
                   product.description ||
                   "";
 
-                const bags = d.bags ?? "—";
-                const units = d.units ?? "—";
+const bagsUnits =
+  Number(d.bags) > 0 && Number(d.units_per_bag) > 0
+    ? `${d.bags} × ${d.units_per_bag}`
+    : "—";
                 const qty = d.qty ?? d.quantity ?? "—";
                 const size = d.size ?? product.size ?? "—";
                 const rate = Number(d.rate ?? d.price ?? 0);
@@ -858,22 +1049,20 @@ const refNo = opening
                   d.amount ?? Number(qty === "—" ? 0 : qty) * rate
                 );
 
-                return `
-                  <tr class="product">
-                    <td></td>
-                    <td></td>
-                    <td class="product-name">• ${esc(productName)}</td>
-                    <td>${esc(desc || "—")}</td>
-                    <td class="center">${esc(bags)}</td>
-                    <td class="center">${esc(units)}</td>
-                    <td class="center">${esc(qty)}</td>
-                    <td class="center">${esc(size)}</td>
-                    <td class="num">${money(rate)}</td>
-                    <td class="num">${money(itemAmount)}</td>
-                    <td class="num"></td>
-                    <td class="num blue">${money(item._bal)}</td>
-                  </tr>
-                `;
+return `
+  <tr class="product">
+    <td></td>
+    <td></td>
+    <td class="product-name">• ${esc(productName)}</td>
+    <td class="center">${esc(size)}</td>
+    <td class="center">${esc(bagsUnits)}</td>
+    <td class="center">${esc(qty)}</td>
+    <td class="num">${money(rate)}</td>
+    <td class="num">${money(itemAmount)}</td>
+    <td class="num"></td>
+    <td class="num blue">${money(item._bal)}</td>
+  </tr>
+`;
               })
               .join("");
           }
@@ -885,30 +1074,28 @@ const refNo = opening
         const showInvoiceAmount =
           !opening && !isCredit && productRows.length === 0;
 
-        return `
-          <tr class="${rowClass}">
-            <td>${esc(date || "—")}</td>
-            <td>${esc(refNo)}</td>
-            <td class="particulars">${esc(particulars)}</td>
-            <td>${esc(description || "—")}</td>
-            <td class="center">—</td>
-            <td class="center">—</td>
-            <td class="center">—</td>
-            <td class="center">—</td>
-            <td class="num">—</td>
-            <td class="num">${debit && showInvoiceAmount ? money(debit) : "—"}</td>
-            <td class="num">${credit ? money(credit) : "—"}</td>
-            <td class="num blue">${money(item._bal)}</td>
-          </tr>
-          ${productRows}
-        `;
+   return `
+  <tr class="${rowClass}">
+<td>${esc(date || "—")}</td>
+<td>${esc(refNo)}</td>
+<td class="particulars">${esc(particulars)}</td>
+<td class="center">—</td>
+<td class="center">—</td>
+<td class="center">—</td>
+<td class="num">—</td>
+<td class="num">${debit && showInvoiceAmount ? money(debit) : "—"}</td>
+<td class="num">${credit ? money(credit) : "—"}</td>
+<td class="num blue">${money(item._bal)}</td>
+  </tr>
+  ${productRows}
+`;
       })
       .join("");
 
     const finalBalance = Number(
       rows.length ? rows[rows.length - 1]._bal : 0
     );
-
+console.log("✅ STEP 5: TABLE ROWS GENERATED");
     const html = `
       <!DOCTYPE html>
       <html>
@@ -996,18 +1183,16 @@ const refNo = opening
               white-space: normal;
             }
 
-            th:nth-child(1) { width: 8%; }
-            th:nth-child(2) { width: 9%; }
-            th:nth-child(3) { width: 16%; }
-            th:nth-child(4) { width: 8%; }
-            th:nth-child(5) { width: 5%; }
-            th:nth-child(6) { width: 5%; }
-            th:nth-child(7) { width: 6%; }
-            th:nth-child(8) { width: 6%; }
-            th:nth-child(9) { width: 6%; }
-            th:nth-child(10) { width: 9%; }
-            th:nth-child(11) { width: 9%; }
-            th:nth-child(12) { width: 9%; }
+th:nth-child(1) { width: 9%; }
+th:nth-child(2) { width: 10%; }
+th:nth-child(3) { width: 20%; }
+th:nth-child(4) { width: 7%; }
+th:nth-child(5) { width: 9%; }
+th:nth-child(6) { width: 7%; }
+th:nth-child(7) { width: 8%; }
+th:nth-child(8) { width: 10%; }
+th:nth-child(9) { width: 10%; }
+th:nth-child(10) { width: 10%; }
 
             .num {
               text-align: right;
@@ -1117,26 +1302,28 @@ const refNo = opening
             </div>
           </div>
 
-         <div class="ledger-title">
+        <div class="ledger-title">
   Sales Ledger of <span>${esc(name)}</span>
+</div>
+
+<div style="text-align:center; font-size:11px; margin-bottom:12px; color:#555;">
+  Period: ${esc(periodLabel)}
 </div>
 
           <table>
             <thead>
-              <tr>
-                <th>Date</th>
-                <th>Ref No.</th>
-                <th>Item / Particulars</th>
-                <th>Description</th>
-                <th>Bags</th>
-                <th>Units</th>
-                <th>Qty</th>
-                <th>Size</th>
-                <th>Rate</th>
-                <th>Debit (₹)</th>
-                <th>Credit (₹)</th>
-                <th>Balance (₹)</th>
-              </tr>
+<tr>
+  <th>Date</th>
+  <th>Ref No.</th>
+  <th>Item / Particulars</th>
+  <th>Size</th>
+  <th>Bags × Units</th>
+  <th>Qty</th>
+  <th>Rate</th>
+  <th>Debit (₹)</th>
+  <th>Credit (₹)</th>
+  <th>Balance (₹)</th>
+</tr>
             </thead>
 
             <tbody>
@@ -1164,13 +1351,28 @@ const refNo = opening
       </html>
     `;
 
+    console.log("✅ STEP 6: HTML GENERATED:", html.length);
 
 
-const file = await Print.printToFileAsync({
-  html,
-  base64: false,
-});
+// Close the filter modal now, and let it fully finish before using native print
+setShowPdfFilter(false);
+await wait(600);
 
+console.log("🟢 STEP 7: PRINT TO FILE START");
+
+const file = await Promise.race([
+  Print.printToFileAsync({
+    html,                 // the real ledger html built above
+    base64: false,
+    width: 842,           // A4 landscape
+    height: 595,
+  }),
+  new Promise((_, rej) =>
+    setTimeout(() => rej(new Error("PDF generation timed out")), 20000)
+  ),
+]);
+
+console.log("✅ STEP 8: PDF CREATED:", file);
 
 const customerCompanyName =
   customer.company_name ||
@@ -1208,11 +1410,19 @@ if (!canShare) {
   return;
 }
 
-await Sharing.shareAsync(pdfUri, {
+pdfShareStartedRef.current = true;
+
+console.log("🔒 PDF SHARE LOCK SET");
+
+console.log("🚀 OPENING SHARE SHEET - PDF:", pdfUri);
+console.log("📤 CALLING shareAsync", Date.now());
+const shareResult = await Sharing.shareAsync(pdfUri, {
   mimeType: "application/pdf",
   dialogTitle: "Customer Ledger PDF",
   UTI: "com.adobe.pdf",
 });
+
+console.log("📤 SHARE RESULT:", shareResult);
 
 
   } catch (err) {
@@ -1222,7 +1432,12 @@ await Sharing.shareAsync(pdfUri, {
       "PDF Preview Failed",
       err?.message || "Unable to open the customer ledger PDF."
     );
+   } finally {
+    // If the share sheet was opened, keep the lock until the app resumes (AppState effect)
+    if (!pdfShareStartedRef.current) pdfGeneratingRef.current = false;
+    setPdfGenerating(false);
   }
+
 };
 
 
@@ -1354,9 +1569,11 @@ style={[
                 <Text style={[styles.subText, styles.sName]} numberOfLines={2}>
               {itemName(d)}
                 </Text>
-                <Text style={[styles.subMuted, styles.sBag]}>
-                  {d.bags && Number(d.bags) > 0 ? `${d.bags}×${d.units}` : "—"}
-                </Text>
+              <Text style={[styles.subMuted, styles.sBag]}>
+  {Number(d.bags) > 0 && Number(d.units_per_bag) > 0
+    ? `${d.bags} × ${d.units_per_bag}`
+    : "—"}
+</Text>
                 <Text style={[styles.subMuted, styles.sQty]}>{d.qty}</Text>
                 <Text style={[styles.subMuted, styles.sPrice]}>
                   {money(d.rate ?? d.price)}
@@ -1605,6 +1822,180 @@ style={[
           </View>
         </View>
       </Animated.View>
+
+      {/* PDF FILTER MODAL */}
+<Modal
+  visible={showPdfFilter}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowPdfFilter(false)}
+>
+  <View style={styles.overlay}>
+    <Pressable
+      style={StyleSheet.absoluteFill}
+      onPress={() => setShowPdfFilter(false)}
+    />
+
+    <View style={styles.pdfFilterBox}>
+      <View style={styles.pdfFilterHeader}>
+        <View>
+          <Text style={styles.pdfFilterTitle}>Generate Ledger PDF</Text>
+          <Text style={styles.pdfFilterSubtitle}>
+            Select transaction period
+          </Text>
+        </View>
+
+        <Pressable onPress={() => setShowPdfFilter(false)}>
+          <MaterialCommunityIcons
+            name="close"
+            size={22}
+            color={COLORS.textSecondary}
+          />
+        </Pressable>
+      </View>
+
+      {[
+        { label: "One Day", value: "one_day", icon: "calendar-today" },
+        { label: "One Week", value: "one_week", icon: "calendar-week" },
+        { label: "One Month", value: "one_month", icon: "calendar-month" },
+        { label: "All Transactions", value: "all", icon: "calendar-range" },
+        { label: "Custom Date", value: "custom", icon: "calendar-edit" },
+      ].map((option) => {
+        const active = pdfPreset === option.value;
+
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => {
+              setPdfPreset(option.value);
+
+              if (option.value === "custom") {
+                setPdfDateStep("from");
+                setShowPdfCalendar(true);
+              }
+            }}
+            style={[
+              styles.pdfFilterOption,
+              active && styles.pdfFilterOptionActive,
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={option.icon}
+              size={21}
+              color={active ? COLORS.primary : COLORS.textSecondary}
+            />
+
+            <Text
+              style={[
+                styles.pdfFilterOptionText,
+                active && { color: COLORS.primary },
+              ]}
+            >
+              {option.label}
+            </Text>
+
+            <MaterialCommunityIcons
+              name={active ? "radiobox-marked" : "radiobox-blank"}
+              size={21}
+              color={active ? COLORS.primary : COLORS.textMuted}
+            />
+          </Pressable>
+        );
+      })}
+
+      {pdfPreset === "custom" && (
+        <View style={styles.pdfCustomDates}>
+          <Text style={styles.pdfCustomText}>
+            From: {pdfFromDate ? fmtDate(pdfFromDate) : "Not selected"}
+          </Text>
+
+          <Text style={styles.pdfCustomText}>
+            To: {pdfToDate ? fmtDate(pdfToDate) : "Not selected"}
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.pdfFilterActions}>
+        <Pressable
+          style={styles.pdfCancelBtn}
+          onPress={() => setShowPdfFilter(false)}
+        >
+          <Text style={styles.pdfCancelText}>Cancel</Text>
+        </Pressable>
+
+     <Pressable
+  style={[
+    styles.pdfGenerateBtn,
+    pdfGenerating && { opacity: 0.5 },
+  ]}
+  onPress={() => {
+    if (pdfGeneratingRef.current) return;
+    console.log("🟢 GENERATE PDF PRESSED");
+    generateLedgerPDF();
+  }}
+  disabled={pdfGenerating}
+>
+          <MaterialCommunityIcons
+            name="file-pdf-box"
+            size={19}
+            color="#fff"
+          />
+          <Text style={styles.pdfGenerateText}>Generate PDF</Text>
+        </Pressable>
+      </View>
+    </View>
+  </View>
+</Modal>
+
+{/* CUSTOM DATE CALENDAR */}
+<Modal
+  visible={showPdfCalendar}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowPdfCalendar(false)}
+>
+  <View style={styles.overlay}>
+    <View style={styles.calendarBox}>
+      <Text style={styles.pdfCalendarTitle}>
+        Select {pdfDateStep === "from" ? "From Date" : "To Date"}
+      </Text>
+
+      <MiniCalendar
+        selected={
+          pdfDateStep === "from" ? pdfFromDate : pdfToDate
+        }
+        onSelect={(key) => {
+          if (pdfDateStep === "from") {
+            setPdfFromDate(key);
+            setPdfToDate("");
+            setPdfDateStep("to");
+          } else {
+            if (key < pdfFromDate) {
+              Alert.alert(
+                "Invalid Date",
+                "To Date cannot be before From Date."
+              );
+              return;
+            }
+
+            setPdfToDate(key);
+            setShowPdfCalendar(false);
+          }
+        }}
+      />
+
+      <Pressable
+        style={{ padding: 12, alignItems: "center" }}
+        onPress={() => setShowPdfCalendar(false)}
+      >
+        <Text style={{ color: COLORS.textMuted, fontWeight: "600" }}>
+          Cancel
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+</Modal>
+
 
       {/* Date picker */}
       <Modal
@@ -2049,5 +2440,116 @@ exportLedgerBtnText: {
   color: COLORS.white,
   fontSize: 13,
   fontWeight: "700",
+},
+
+// PDF FILTER
+pdfFilterBox: {
+  width: 390,
+  maxWidth: "100%",
+  backgroundColor: COLORS.white,
+  borderRadius: 16,
+  padding: 20,
+  elevation: 12,
+},
+
+pdfFilterHeader: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 18,
+},
+
+pdfFilterTitle: {
+  fontSize: 19,
+  fontWeight: "800",
+  color: COLORS.textPrimary,
+},
+
+pdfFilterSubtitle: {
+  fontSize: 13,
+  color: COLORS.textMuted,
+  marginTop: 4,
+},
+
+pdfFilterOption: {
+  flexDirection: "row",
+  alignItems: "center",
+  paddingHorizontal: 13,
+  paddingVertical: 14,
+  borderRadius: 10,
+  borderWidth: 1,
+  borderColor: COLORS.divider,
+  marginBottom: 9,
+  gap: 12,
+},
+
+pdfFilterOptionActive: {
+  borderColor: COLORS.primary,
+  backgroundColor: COLORS.primarySoft || "#EEF2FF",
+},
+
+pdfFilterOptionText: {
+  flex: 1,
+  fontSize: 14.5,
+  fontWeight: "600",
+  color: COLORS.textPrimary,
+},
+
+pdfCustomDates: {
+  backgroundColor: "#F8FAFC",
+  padding: 12,
+  borderRadius: 9,
+  marginBottom: 12,
+  gap: 8,
+},
+
+pdfCustomText: {
+  fontSize: 13,
+  fontWeight: "600",
+  color: COLORS.textSecondary,
+},
+
+pdfFilterActions: {
+  flexDirection: "row",
+  justifyContent: "flex-end",
+  gap: 10,
+  marginTop: 12,
+},
+
+pdfCancelBtn: {
+  paddingHorizontal: 17,
+  paddingVertical: 12,
+  borderRadius: 9,
+  backgroundColor: "#F1F5F9",
+},
+
+pdfCancelText: {
+  fontWeight: "700",
+  color: COLORS.textSecondary,
+},
+
+pdfGenerateBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 7,
+  paddingHorizontal: 18,
+  paddingVertical: 12,
+  borderRadius: 9,
+  backgroundColor: COLORS.primary,
+},
+
+pdfGenerateText: {
+  color: "#FFFFFF",
+  fontSize: 13.5,
+  fontWeight: "800",
+},
+
+pdfCalendarTitle: {
+  fontSize: 16,
+  fontWeight: "800",
+  color: COLORS.textPrimary,
+  textAlign: "center",
+  paddingTop: 15,
 },
 });

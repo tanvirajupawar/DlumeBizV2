@@ -22,6 +22,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import CustomerPaymentModal from "../../components/CustomerPaymentModal";
+import { buildReceiptHtml } from "../../services/receiptPdf";
 
 import {
   COLORS as colors,
@@ -33,6 +34,7 @@ import { NativeModules } from "react-native";
 import {
   printReceipt,
   printDailySalesSummary,
+  getReceiptPrinterType,
 } from "../../services/printer";
 
 import { getCached, setCached, getCachedSync } from "../../utils/cache";
@@ -1287,135 +1289,39 @@ const handlePrint = async () => {
   }
 };
 
-  const handleShare = async () => {
-    try {
-      const receipt = buildReceiptFromOrder(order, company, user);
-      const isNarrow = receipt.receipt_size === "58mm";
-      const pageWidthMm = isNarrow ? 58 : 80;
+const handleShare = async () => {
+  try {
+    const receipt = buildReceiptFromOrder(order, company, user);
 
-      const itemsRows = receipt.items
-        .map(
-          (it) => `
-        <tr>
-          <td class="name" colspan="4">${it.name}</td>
-        </tr>
-        <tr>
-          <td class="qty">${it.qty} x ${money(it.rate)}</td>
-          <td class="amt" colspan="3">${"\u20B9"}${money(it.amount)}</td>
-        </tr>
-      `
-        )
-        .join("");
+    // Detect the currently connected printer type
+    const printerType = await getReceiptPrinterType();
 
-      const html = `
-      <html>
-      <head>
-        <meta charset="utf-8" />
-        <style>
-          @page {
-            size: ${pageWidthMm}mm auto;
-            margin: 0;
-          }
-          * { box-sizing: border-box; }
-          body {
-            font-family: 'Courier New', Courier, monospace;
-            width: ${pageWidthMm}mm;
-            margin: 0 auto;
-            padding: 8px 10px 16px;
-            color: #000;
-            font-size: 12px;
-            line-height: 1.4;
-          }
-          .center { text-align: center; }
-          .bold { font-weight: 700; }
-          .company {
-            font-size: 16px;
-            font-weight: 700;
-            text-transform: uppercase;
-          }
-          .divider {
-            border-top: 1px dashed #000;
-            margin: 8px 0;
-          }
-          .meta-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 11.5px;
-          }
-          table { width: 100%; border-collapse: collapse; }
-          td { padding: 2px 0; font-size: 11.5px; vertical-align: top; }
-          td.name { font-weight: 700; padding-top: 6px; }
-          td.qty { color: #333; }
-          td.amt { text-align: right; }
-          .totals-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            padding: 2px 0;
-          }
-          .grand-total {
-            font-size: 14px;
-            font-weight: 700;
-          }
-          .footer {
-            margin-top: 14px;
-            font-size: 11px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="center company">${receipt.companyName}</div>
-        <div class="center" style="font-size:11px; margin-top:2px;">
-          Cashier: ${receipt.cashierName}
-        </div>
+    // Generate PDF using the shared receiptPdf.js design
+    const html = buildReceiptHtml(receipt, printerType);
 
-        <div class="divider"></div>
+    const { uri } = await Print.printToFileAsync({
+      html,
+      base64: false,
+    });
 
-        <div class="meta-row"><span>Invoice</span><span class="bold">${receipt.invoiceNo}</span></div>
-        <div class="meta-row"><span>Date</span><span>${formatDate(receipt.invoiceDate)}</span></div>
-        <div class="meta-row"><span>Customer</span><span>${receipt.customerName}</span></div>
-        ${receipt.paymentMode ? `<div class="meta-row"><span>Payment</span><span>${receipt.paymentMode}</span></div>` : ""}
-
-        <div class="divider"></div>
-
-        <table>
-          ${itemsRows}
-        </table>
-
-        <div class="divider"></div>
-
-        <div class="totals-row"><span>Subtotal</span><span>${"\u20B9"}${money(receipt.subtotal)}</span></div>
-
-        ${
-          receipt.totalDiscount > 0
-            ? `<div class="totals-row"><span>Discount</span><span>-${"\u20B9"}${money(receipt.totalDiscount)}</span></div>`
-            : ""
-        }
-        ${
-          receipt.totalTax > 0
-            ? `<div class="totals-row"><span>Tax</span><span>${"\u20B9"}${money(receipt.totalTax)}</span></div>`
-            : ""
-        }
-
-        <div class="divider"></div>
-
-        <div class="totals-row grand-total"><span>TOTAL</span><span>${"\u20B9"}${money(receipt.grandTotal)}</span></div>
-        <div class="totals-row"><span>Paid</span><span>${"\u20B9"}${money(receipt.amountReceived)}</span></div>
-        <div class="totals-row"><span>Pending</span><span>${"\u20B9"}${money(order.pendingAmount)}</span></div>
-
-        <div class="divider"></div>
-
-        <div class="center footer">Thank you for your business!</div>
-      </body>
-      </html>
-    `;
-
-      const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri);
-    } catch (err) {
-      Alert.alert("Share Failed", err.message);
+    if (!uri) {
+      throw new Error("Unable to generate invoice PDF.");
     }
-  };
+
+    await Sharing.shareAsync(uri, {
+      mimeType: "application/pdf",
+      dialogTitle: `Share Invoice ${order.invoiceNo}`,
+      UTI: "com.adobe.pdf",
+    });
+
+  } catch (err) {
+    console.log("ORDER SHARE ERROR:", err);
+    Alert.alert(
+      "Share Failed",
+      err?.message || "Unable to share invoice."
+    );
+  }
+};
 
   const handleGenerateInvoice = () =>
     Alert.alert("Generate Invoice", `Generate invoice for ${order.invoiceNo} (coming soon).`);

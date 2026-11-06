@@ -1,9 +1,11 @@
 
 import React from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
+
 import {
   NavigationContainer,
 } from "@react-navigation/native";
+
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import LoginScreen from "./src/screens/Login/LoginScreen";
@@ -19,14 +21,27 @@ import {
   useAuth,
 } from "./src/context/AuthContext";
 
+import {
+  NetworkProvider,
+  useNetwork,
+} from "./src/context/NetworkContext";
+
+import NoInternetScreen from "./src/screens/internet/NoInternetScreen";
+
 const Stack = createNativeStackNavigator();
 
 function AppNavigator() {
   const { user, isLoading } = useAuth();
+  const { isConnected } = useNetwork();
 
-if (isLoading) {
-  return null;
-}
+  if (isLoading) {
+    return null;
+  }
+
+  // Show No Internet screen globally
+  if (!isConnected) {
+    return <NoInternetScreen />;
+  }
 
   return (
     <NavigationContainer>
@@ -36,23 +51,37 @@ if (isLoading) {
         screenOptions={{ headerShown: false }}
       >
         {!user ? (
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+          />
         ) : (
           <>
-            <Stack.Screen name="POS" component={POSScreen} />
-            <Stack.Screen name="Checkout" component={CheckoutScreen} />
+            <Stack.Screen
+              name="POS"
+              component={POSScreen}
+            />
+
+            <Stack.Screen
+              name="Checkout"
+              component={CheckoutScreen}
+            />
+
             <Stack.Screen
               name="POSPaymentSuccess"
               component={POSPaymentSuccessScreen}
             />
+
             <Stack.Screen
               name="CreditSummary"
               component={CreditSummaryScreen}
             />
+
             <Stack.Screen
               name="POSReturnSuccess"
               component={POSReturnSuccessScreen}
             />
+
             <Stack.Screen
               name="PaymentSummary"
               component={PaymentSummaryScreen}
@@ -66,9 +95,11 @@ if (isLoading) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppNavigator />
-    </AuthProvider>
+    <NetworkProvider>
+      <AuthProvider>
+        <AppNavigator />
+      </AuthProvider>
+    </NetworkProvider>
   );
 }
 

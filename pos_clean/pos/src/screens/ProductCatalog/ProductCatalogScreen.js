@@ -509,7 +509,11 @@ const renderCategoryTab = ({ item }) => {
 });
     const mrp       = Number(item.salePrice || item.price || 0).toFixed(0);
     const purchasePrice = Number(item.purchase_price ?? 0).toFixed(0);
-    const stockIn   = item.stock_in    ?? item.stockIn    ?? 0;
+    const stockIn =
+  item.opening_stock ??
+  item.stock_in ??
+  item.stockIn ??
+  0;
     const stockOut  = item.stock_out   ?? item.stockOut   ?? 0;
     const barcodeQty= item.barcode_qty ?? item.barcodeQty ?? 1;
     const inactive  = item.is_active === false;

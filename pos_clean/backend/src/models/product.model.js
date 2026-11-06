@@ -40,10 +40,22 @@ const productSchema = new mongoose.Schema(
       default: "",
     },
 
-    qty: {
-      type: Number,
-      default: 0,
-    },
+qty: {
+  type: Number,
+  default: 0,
+},
+
+opening_stock: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
+
+stock: {
+  type: Number,
+  default: 0,
+  min: 0,
+},
 
     purchase_price: {
       type: Number,

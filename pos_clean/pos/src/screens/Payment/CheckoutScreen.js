@@ -188,25 +188,36 @@ if (!isEditMode) {
      saleId: sale._id || sale.sale_id,
   saleCompleted: sale,
 isInvoiceUpdated: isEditMode,
-receipt: buildReceipt({
-        company,
-        user,
-        customer,
-        sale,
-        saleDate,
-        cartItems,
-      paymentMode: isEditMode
-  ? "Invoice Updated — No New Payment Received"
-  : option.mode,
-        transportationDetails,
-        subtotal,
-        discountValue: Number(discount) || 0,
-        tax,
-        invoiceAmount: Number(discountedGrandTotal) || 0,
-        previousOutstanding: Number(previousOutstanding) || 0,
-        totalPayable: Number(totalPayable) || 0,
-        amountPaid: actualPaidAmount,
-      }),
+receipt: {
+  ...buildReceipt({
+    company,
+    user,
+    customer,
+    sale,
+    saleDate,
+    cartItems,
+    paymentMode: isEditMode
+      ? "Invoice Updated — No New Payment Received"
+      : option.mode,
+    transportationDetails,
+    subtotal,
+    discountValue: Number(discount) || 0,
+    tax,
+    invoiceAmount: Number(discountedGrandTotal) || 0,
+    previousOutstanding: Number(previousOutstanding) || 0,
+    totalPayable: Number(totalPayable) || 0,
+    amountPaid: actualPaidAmount,
+  }),
+
+  // Mobile number of selected customer
+  customerPhone:
+    customer?.phone ||
+    customer?.mobile ||
+    customer?.mobile_number ||
+    customer?.contact_no_1 ||
+    customer?.contact_no ||
+    "",
+},
     amount: actualPaidAmount,
 paymentMethod: isEditMode ? "NONE" : option.id,
     });

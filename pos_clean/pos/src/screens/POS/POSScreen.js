@@ -150,14 +150,8 @@ const handleDateChange = (event, selected) => {
 
   if (event?.type === "dismissed" || !selected) return;
 
-  const today = new Date();
-
-  const isToday =
-    selected.getFullYear() === today.getFullYear() &&
-    selected.getMonth() === today.getMonth() &&
-    selected.getDate() === today.getDate();
-
-  setSaleDate(isToday ? null : selected);
+  // Store date consistently as YYYY-MM-DD
+  setSaleDate(toYMD(selected));
 };
 
 const saleDateLabel = saleDate
@@ -211,6 +205,14 @@ const handleAddCalculatorItem = (item) => {
   const [customers, setCustomers] = useState(
     () => getCachedSync(CACHE_KEYS.customers)?.data || []
   );
+
+  const totalOutstanding = useMemo(() => {
+  return customers.reduce((total, customer) => {
+    const amount = Number(customer?.outstanding || 0);
+
+    return total + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+}, [customers]);
 
     const activeCustomers = useMemo(
     () => customers.filter((c) => c.is_active !== false),
@@ -1500,21 +1502,30 @@ useEffect(() => {
 
 const handleProductTap = (product) => setQuickAddProduct(product);
 
-const handleQuickAdd = ({ bags, units }) => {
+const handleQuickAdd = ({ bags, units, price }) => {
   const product = quickAddProduct;
   if (!product) return;
+
   const productId = product._id || product.id;
+  const finalPrice = Number(price) || 0;
+
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
   updateCart((prev) => {
-    const existing = prev.find((i) => (i._id || i.id) === productId);
+    const existing = prev.find(
+      (i) => (i._id || i.id) === productId
+    );
+
     if (existing) {
       const sameUnits =
-        existing.bags != null && existing.units_per_bag === units;
+        existing.bags != null &&
+        Number(existing.units_per_bag) === Number(units);
+
       return prev.map((i) =>
         (i._id || i.id) === productId
           ? {
               ...i,
+              price: finalPrice,
               qty: (Number(i.qty) || 0) + bags * units,
               bags: sameUnits ? existing.bags + bags : null,
               units_per_bag: sameUnits ? units : null,
@@ -1522,15 +1533,30 @@ const handleQuickAdd = ({ bags, units }) => {
           : i
       );
     }
-    return [...prev, { ...product, qty: bags * units, bags, units_per_bag: units }];
+
+    return [
+      ...prev,
+      {
+        ...product,
+        price: finalPrice,
+        qty: bags * units,
+        bags,
+        units_per_bag: units,
+      },
+    ];
   });
 
   // Remember units for next time
   if (unitsStorageKey) {
     const next = { ...unitsMap, [productId]: units };
     setUnitsMap(next);
-    AsyncStorage.setItem(unitsStorageKey, JSON.stringify(next)).catch(() => {});
+
+    AsyncStorage.setItem(
+      unitsStorageKey,
+      JSON.stringify(next)
+    ).catch(() => {});
   }
+
   setQuickAddProduct(null);
 };
 
@@ -1934,6 +1960,9 @@ useEffect(() => {
   
 <Header
   title={activeNav === "customers" ? "Customers" : "Cart"}
+  totalOutstanding={
+    activeNav === "customers" ? totalOutstanding : null
+  }
   hideSearch={isCalculatorMode && activeNav !== "customers"}
   hideScanner={isCalculatorMode || activeNav === "customers"}
   hideCustomer={activeNav === "customers"}
@@ -2455,15 +2484,14 @@ onApply={(updates) => {
 
 
 {showDatePicker && (
- <DateTimePicker
+<DateTimePicker
   value={
-    saleDate instanceof Date && !Number.isNaN(saleDate.getTime())
-      ? saleDate
+    saleDate
+      ? new Date(`${saleDate}T12:00:00`)
       : new Date()
   }
   mode="date"
   display="calendar"
-  maximumDate={new Date()}
   onChange={handleDateChange}
 />
 )}

@@ -24,6 +24,7 @@ const stockManagementSchema = new mongoose.Schema(
     out: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     total_stock: {
@@ -42,34 +43,10 @@ stockManagementSchema.index(
   { unique: true }
 );
 
-// Calculate total stock before saving.
+// Automatically calculate total stock before saving.
 stockManagementSchema.pre("save", function () {
-  this.total_stock = (this.in || 0) - (this.out || 0);
-});
-
-// Calculate total stock when both values are provided
-// in a findOneAndUpdate operation.
-stockManagementSchema.pre("findOneAndUpdate", function () {
-  const update = this.getUpdate() || {};
-  const values = {
-    ...(update.$set || {}),
-    ...Object.fromEntries(
-      Object.entries(update).filter(([key]) => !key.startsWith("$"))
-    ),
-  };
-
-  if (values.in !== undefined || values.out !== undefined) {
-    const currentIn = values.in ?? 0;
-    const currentOut = values.out ?? 0;
-
-    update.$set = {
-      ...(update.$set || {}),
-      total_stock: currentIn - currentOut,
-      updatedAt: new Date(),
-    };
-
-    this.setUpdate(update);
-  }
+  this.total_stock =
+    Number(this.in || 0) - Number(this.out || 0);
 });
 
 const StockManagement = mongoose.model(

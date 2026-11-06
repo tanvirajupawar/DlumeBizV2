@@ -7,11 +7,20 @@ import {
   Animated,
   Easing,
   ActivityIndicator,
+  Alert,
 } from "react-native";
+import * as Print from "expo-print";
+import * as FileSystem from "expo-file-system/legacy";
+import Share from "react-native-share";
 import { Ionicons, MaterialCommunityIcons, Feather } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
-import { printReceipt } from "../../services/printer";
+import {
+  getReceiptPrinterType,
+  printReceipt,
+} from "../../services/printer";
+
+import { buildReceiptHtml } from "../../services/receiptPdf";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -43,6 +52,7 @@ const {
   // idle -> printing -> done | error. Tapping again from "done" or "error"
   // just reprints (cashiers reprint copies all the time).
   const [printState, setPrintState] = useState("idle");
+  const [shareLoading, setShareLoading] = useState(false);
 
   // Animation values
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -108,6 +118,160 @@ const {
       autoTimerRef.current = setTimeout(goToFreshCart, AUTO_NAVIGATE_DELAY);
     }
   };
+
+
+const handleShareReceipt = async () => {
+  if (shareLoading) return;
+
+  if (!receipt) {
+    Alert.alert("Receipt Missing", "Receipt data is not available.");
+    return;
+  }
+
+  const rawPhone =
+    receipt?.customerNumber ||
+    receipt?.customerPhone ||
+    receipt?.customerMobile ||
+    receipt?.customer?.phone ||
+    receipt?.customer?.mobile ||
+    receipt?.customer?.contact_no_1 ||
+    "";
+
+  const digits = String(rawPhone).replace(/\D/g, "");
+
+  let customerPhone = digits;
+
+  if (digits.length === 12 && digits.startsWith("91")) {
+    customerPhone = digits.slice(2);
+  } else if (digits.length === 11 && digits.startsWith("0")) {
+    customerPhone = digits.slice(1);
+  }
+
+  if (!/^[6-9]\d{9}$/.test(customerPhone)) {
+    Alert.alert(
+      "Invalid Customer Mobile Number",
+      "Please add a valid 10-digit customer mobile number."
+    );
+    return;
+  }
+
+  if (autoTimerRef.current) {
+    clearTimeout(autoTimerRef.current);
+  }
+
+  setShareLoading(true);
+
+  try {
+    console.log("STEP 1 - FUNCTION CHECK", {
+      printer: typeof getReceiptPrinterType,
+      htmlBuilder: typeof buildReceiptHtml,
+      pdfGenerator: typeof Print?.printToFileAsync,
+      shareSingle: typeof Share?.shareSingle,
+      whatsapp: Share?.Social?.WHATSAPP,
+    });
+
+    console.log("STEP 2 - DETECT PRINTER");
+
+    const printerType = await getReceiptPrinterType();
+
+    console.log("PRINTER TYPE:", printerType);
+
+    console.log("STEP 3 - BUILD HTML");
+
+    const html = buildReceiptHtml(receipt, printerType);
+
+    console.log("HTML LENGTH:", html?.length);
+
+    console.log("STEP 4 - GENERATE PDF");
+
+    const pdf = await Print.printToFileAsync({
+      html,
+      base64: false,
+    });
+
+    console.log("PDF RESULT:", pdf);
+
+    if (!pdf?.uri) {
+      throw new Error("PDF generation failed.");
+    }
+
+    const safeFilePart = (value, fallback) =>
+  String(value || fallback)
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+const safeCompanyName = safeFilePart(
+  receipt.companyName,
+  "Company"
+);
+
+const safeCustomerName = safeFilePart(
+  receipt.customerName || receipt.customer?.name,
+  "Customer"
+);
+
+const safeInvoiceNo = safeFilePart(
+  receipt.invoiceNo,
+  "Sale"
+);
+
+const fileName =
+  `${safeCompanyName}_${safeCustomerName}_Sales_Receipt_${safeInvoiceNo}.pdf`;
+
+const namedPdfUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+// Remove an older file with the same name, if present.
+const existingFile = await FileSystem.getInfoAsync(namedPdfUri);
+
+if (existingFile.exists) {
+  await FileSystem.deleteAsync(namedPdfUri);
+}
+
+// Copy PDF to the meaningful filename.
+await FileSystem.copyAsync({
+  from: pdf.uri,
+  to: namedPdfUri,
+});
+
+console.log("✅ NAMED PDF:", namedPdfUri);
+
+    console.log("STEP 5 - WHATSAPP SHARE");
+
+    if (typeof Share?.shareSingle !== "function") {
+      throw new Error(
+        "Share.shareSingle is unavailable in react-native-share."
+      );
+    }
+
+
+
+    await Share.shareSingle({
+      title: "Customer Receipt",
+      message: "Thank you for shopping with us!",
+   url: namedPdfUri,
+      type: "application/pdf",
+      social: Share.Social.WHATSAPP,
+      whatsAppNumber: `91${customerPhone}`,
+      filename: fileName,
+      failOnCancel: false,
+    });
+
+    console.log("STEP 6 - SHARE COMPLETED");
+
+  } catch (error) {
+    console.log("SHARE ERROR MESSAGE:", error?.message);
+    console.log("SHARE ERROR STACK:", error?.stack);
+    console.log("SHARE ERROR OBJECT:", error);
+
+    Alert.alert(
+      "Share Failed",
+      error?.message || "Unable to share receipt."
+    );
+
+  } finally {
+    setShareLoading(false);
+  }
+};
 
   useEffect(() => {
     Animated.sequence([
@@ -321,6 +485,29 @@ const savedOrderAmount = Number(
             )}
           </TouchableOpacity>
 
+
+          {/* Share Receipt Button */}
+<TouchableOpacity
+  style={styles.shareBtn}
+  activeOpacity={0.85}
+  onPress={handleShareReceipt}
+  disabled={shareLoading}
+>
+  {shareLoading ? (
+    <ActivityIndicator size="small" color="#FFFFFF" />
+  ) : (
+    <MaterialCommunityIcons
+      name="whatsapp"
+      size={21}
+      color="#FFFFFF"
+    />
+  )}
+
+  <Text style={styles.shareBtnText}>
+    {shareLoading ? "Preparing Receipt..." : "Share Receipt on WhatsApp"}
+  </Text>
+</TouchableOpacity>
+
           {/* ── Done button ───────────────────────────────────────────── */}
           <TouchableOpacity
             style={styles.doneBtn}
@@ -467,4 +654,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: ACCENT_DARK,
   },
+  shareBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  width: "100%",
+  backgroundColor: "#25D366",
+  paddingVertical: 15,
+  borderRadius: 14,
+  marginBottom: 12,
+},
+
+shareBtnText: {
+  color: "#FFFFFF",
+  fontSize: 15,
+  fontWeight: "700",
+},
 });

@@ -758,13 +758,13 @@ const [createdAllocation] = await PaymentAllocation.create(
         ) / 100
       );
 
-      let invoiceStatus = "UNPAID";
+  let invoiceStatus = "UNPAID";
 
-      if (balance <= 0.009) {
-        invoiceStatus = "PAID";
-      } else if (totalPaid > 0) {
-        invoiceStatus = "PARTIAL";
-      }
+if (balance <= 0.009) {
+  invoiceStatus = "PAID";
+} else if (totalPaid > 0 || totalReturned > 0) {
+  invoiceStatus = "PARTIAL";
+}
 
       // Persist invoice payment details in MongoDB
       await Sale.updateOne(

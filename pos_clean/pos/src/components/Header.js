@@ -22,6 +22,7 @@
    */
 export default function Header({
   title = "Cart",
+    totalOutstanding = null,
   leftWidth,
     alwaysShowSearch = false,
   hideSearch = false,
@@ -61,6 +62,10 @@ transportationDetails = "",
   children, // rendered immediately to the left of the title text
 }) {
 const [searchActive, setSearchActive] = useState(alwaysShowSearch);
+
+useEffect(() => {
+  setSearchActive(alwaysShowSearch);
+}, [alwaysShowSearch]);
 
 useEffect(() => {
   if (!searchActive) return;
@@ -302,7 +307,22 @@ const closeSearch = () => {
 )}
 
 
- 
+ {title === "Customers" && totalOutstanding !== null && (
+  <View style={styles.outstandingHeader}>
+    <View>
+      <Text style={styles.outstandingHeaderLabel}>
+        Total Outstanding
+      </Text>
+
+      <Text style={styles.outstandingHeaderValue}>
+        ₹{Number(totalOutstanding || 0).toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}
+      </Text>
+    </View>
+  </View>
+)}
 
     {!hideAdd && onAddPress && (
    
@@ -523,6 +543,32 @@ customerButtonText: {
   color: "#1D4ED8",
   fontSize: 14,
   fontWeight: "700",
+},
+customerTitleRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  marginLeft: SPACING.sm,
+  gap: SPACING.lg,
+  flexShrink: 1,
+},
+
+outstandingHeader: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+  flexShrink: 1,
+},
+
+outstandingHeaderLabel: {
+  color: COLORS.textOnDarkDim,
+  fontSize: 13,
+  fontWeight: "500",
+},
+
+outstandingHeaderValue: {
+  color: "#FF7676",
+  fontSize: 17,
+  fontWeight: "800",
 },
 
   });

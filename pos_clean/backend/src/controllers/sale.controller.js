@@ -1046,17 +1046,9 @@ const oldOpeningBalancePayments = normalizedCustomerId
 
       const totalAmount = Number((subtotal - discount).toFixed(2));
 
-      let selectedInvoiceDate = sale.invoice_date;
-
-      if (invoice_date) {
-        const parsedDate = new Date(invoice_date);
-
-        if (Number.isNaN(parsedDate.getTime())) {
-          fail(400, "Invalid invoice date");
-        }
-
-        selectedInvoiceDate = parsedDate;
-      }
+    // Keep the original invoice date when editing.
+// Editing should not move the invoice to a new date.
+const selectedInvoiceDate = sale.invoice_date;
 
       // ------------------------------------------------
       // 1. LOAD CUSTOMER INVOICES AND THEIR ALLOCATIONS
@@ -1717,31 +1709,57 @@ if (confirmRefund && Number(paymentSource.unallocated || 0) > 0) {
         { session }
       );
 
-      // ------------------------------------------------
-      // 10. UPDATE ONLY THE SALE LEDGER ENTRY
-      // ------------------------------------------------
+  // ------------------------------------------------
+// 10. UPDATE EXISTING SALE LEDGER ENTRY
+// ------------------------------------------------
 
-      await CustomerLedger.deleteMany({
+if (company.payment_mode === "CREDIT" && sale.customer_id) {
+
+  const existingLedgerEntry = await CustomerLedger.findOne({
+    company_id: companyId,
+    sale_id: sale._id,
+    type: "SALE",
+  }).session(session);
+
+  if (existingLedgerEntry) {
+
+    // Update the existing posting without changing its position.
+    existingLedgerEntry.customer_id = sale.customer_id;
+    existingLedgerEntry.debit = totalAmount;
+    existingLedgerEntry.credit = 0;
+    existingLedgerEntry.description = `Invoice ${sale.invoice_no}`;
+
+    // Do NOT change transaction_date or createdAt.
+    await existingLedgerEntry.save({ session });
+
+  } else {
+
+    // Create only if this invoice does not already have a ledger entry.
+    await CustomerLedger.create(
+      [{
         company_id: companyId,
-        sale_id: sale._id,
+        customer_id: sale.customer_id,
         type: "SALE",
-      }).session(session);
+        sale_id: sale._id,
+        debit: totalAmount,
+        credit: 0,
+        description: `Invoice ${sale.invoice_no}`,
+        transaction_date: sale.invoice_date,
+      }],
+      { session }
+    );
+  }
 
-      if (company.payment_mode === "CREDIT" && sale.customer_id) {
-        await CustomerLedger.create(
-          [{
-            company_id: companyId,
-            customer_id: sale.customer_id,
-            type: "SALE",
-            sale_id: sale._id,
-            debit: totalAmount,
-            credit: 0,
-            description: `Invoice ${sale.invoice_no}`,
-            transaction_date: sale.invoice_date,
-          }],
-          { session }
-        );
-      }
+} else {
+
+  // Remove SALE ledger entry if this invoice is no longer a credit sale.
+  await CustomerLedger.deleteMany({
+    company_id: companyId,
+    sale_id: sale._id,
+    type: "SALE",
+  }).session(session);
+
+}
 
       responseData = {
         sale_id: sale._id,

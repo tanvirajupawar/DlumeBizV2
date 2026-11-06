@@ -34,12 +34,20 @@ const handleLogin = async () => {
   try {
     setLoading(true);                              // add this
 
-    const response = await loginUser(username, password);
+const response = await loginUser(username, password);
 
-    await login({
-      userData: response.data.user,
-      accessToken: response.data.accessToken,
-    });
+console.log("LOGIN RESPONSE:", JSON.stringify(response, null, 2));
+
+const data = response?.data || response;
+
+if (!data?.user || !data?.accessToken) {
+  throw new Error("Invalid login response. User or access token missing.");
+}
+
+await login({
+  userData: data.user,
+  accessToken: data.accessToken,
+});
 
     navigation.replace("POS");
   } catch (error) {

@@ -50,6 +50,7 @@ const formatProduct = (product, stock = {}) => {
     product: p.product || "",
     category: p.category || "",
     category_id: p.category_id || null,
+    opening_stock: Number(p.opening_stock ?? 0),
     purchasePrice: Number(p.purchase_price || 0),
     salePrice: Number(p.mrp || 0),
     stock_in: stockIn,
@@ -102,14 +103,18 @@ export const createProduct = async (req, res) => {
      categoryName = category.category;
     }
 
-    const initialQty = Number(data.qty || 0);
+const initialQty = Number(
+  data.opening_stock ?? data.stock ?? data.qty ?? 0
+);
 
-    if (!Number.isFinite(initialQty) || initialQty < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Opening stock must be zero or greater",
-      });
-    }
+if (!Number.isFinite(initialQty) || initialQty < 0) {
+  return res.status(400).json({
+    success: false,
+    message: "Opening stock must be zero or greater",
+  });
+}
+
+  
 
     let barcode = data.barcode
       ? String(data.barcode).trim()
@@ -129,16 +134,17 @@ export const createProduct = async (req, res) => {
       barcode = `DL${lastNumber + 1}`;
     }
 
-    const product = await Product.create({
-      ...data,
-      product: String(data.product).trim(),
-      barcode,
-      qty: initialQty,
-      category: categoryName,
-      category_id: data.category_id || null,
-      company_id: companyId,
-      createdBy: String(req.user._id),
-    });
+const product = await Product.create({
+  ...data,
+  product: String(data.product).trim(),
+  barcode,
+  qty: initialQty,
+  opening_stock: initialQty,
+  category: categoryName,
+  category_id: data.category_id || null,
+  company_id: companyId,
+  createdBy: String(req.user._id),
+});
 
     await StockManagement.create({
       product_id: product._id,
@@ -417,14 +423,17 @@ if (stockAdjustment !== 0) {
     });
   }
 
-  if (stockAdjustment > 0) {
-    stock.in = Number(stock.in || 0) + stockAdjustment;
-  } else {
-    stock.out =
-      Number(stock.out || 0) + Math.abs(stockAdjustment);
-  }
+if (stockAdjustment > 0) {
+  stock.in = Number(stock.in || 0) + stockAdjustment;
+} else {
+  stock.out =
+    Number(stock.out || 0) + Math.abs(stockAdjustment);
+}
 
-  await stock.save();
+stock.total_stock =
+  Number(stock.in || 0) - Number(stock.out || 0);
+
+await stock.save();
 } else if (stockIn !== undefined || stockOut !== undefined) {
   // Keep support for existing stock_in / stock_out requests.
   const add = Number(stockIn || 0);
@@ -455,10 +464,13 @@ if (stockAdjustment !== 0) {
     });
   }
 
-  stock.in = Number(stock.in || 0) + add;
-  stock.out = Number(stock.out || 0) + subtract;
+stock.in = Number(stock.in || 0) + add;
+stock.out = Number(stock.out || 0) + subtract;
 
-  await stock.save();
+stock.total_stock =
+  Number(stock.in || 0) - Number(stock.out || 0);
+
+await stock.save();
 }
 
     const stock = await StockManagement.findOne({
@@ -522,8 +534,12 @@ export const addStock = async (req, res) => {
     }
 
     const stock = await getStock(id, companyId);
-    stock.in = Number(stock.in || 0) + addedStock;
-    await stock.save();
+stock.in = Number(stock.in || 0) + addedStock;
+
+stock.total_stock =
+  Number(stock.in || 0) - Number(stock.out || 0);
+
+await stock.save();
 
     return res.json({
       success: true,

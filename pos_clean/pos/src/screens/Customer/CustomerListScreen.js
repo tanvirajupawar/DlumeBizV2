@@ -73,6 +73,7 @@ export default function CustomerListScreen({
 }) {
   const search = searchValue;
   const [summaryCustomer, setSummaryCustomer] = useState(null);
+  
 
   const handleSelectRange = (range) => {
     const customer = summaryCustomer;
