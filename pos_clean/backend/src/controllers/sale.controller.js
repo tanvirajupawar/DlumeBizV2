@@ -544,30 +544,37 @@ const saleItems = saleItemsRaw.map((item) => {
       ? item.product_id
       : null;
 
-  return {
-    ...item,
+return {
+  ...item,
 
-    // Keep product_id as an ID for the frontend
-    product_id: product?._id || item.product_id || null,
+  // Keep product_id as an ID for the frontend
+  product_id: product?._id || item.product_id || null,
 
-    // Prefer saved snapshots; fall back to the current product
-    type:
-      item.type ||
-      product?.type ||
-      product?.product_type ||
-      product?.productType ||
-      product?.item_type ||
-      "",
+  // Product name: saved snapshot first, current product as fallback
+  product_name:
+    item.product_name ||
+    product?.product ||
+    "",
 
-    size:
-      item.size ||
-      product?.size ||
-      product?.product_size ||
-      product?.productSize ||
-      product?.size_name ||
-      product?.variant_size ||
-      "",
-  };
+  // Product type
+  type:
+    item.type ||
+    product?.type ||
+    product?.product_type ||
+    product?.productType ||
+    product?.item_type ||
+    "",
+
+  // Product size
+  size:
+    item.size ||
+    product?.size ||
+    product?.product_size ||
+    product?.productSize ||
+    product?.size_name ||
+    product?.variant_size ||
+    "",
+};
 });
 
     // --------------------------------
@@ -678,6 +685,15 @@ status,
         items: itemsBySale[saleId] || [],
       };
     });
+
+console.log(
+  "SALE ITEM DEBUG:",
+  JSON.stringify(
+    data[0]?.items,
+    null,
+    2
+  )
+);
 
     return res.status(200).json({
       success: true,

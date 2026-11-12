@@ -39,35 +39,41 @@ import { COLORS, SPACING, RADIUS } from "./Colors";
 const MAX_CONTENT_WIDTH = 720;
 
 export default function ManageCartItemModal({ visible, item, onClose, onApply }) {
-  const [qty, setQty] = useState("1");
+ const [bags, setBags] = useState("0");
+const [units, setUnits] = useState("0");
   const [price, setPrice] = useState("0");
   const [description, setDescription] = useState("");
 
 useEffect(() => {
   if (!visible || !item) return;
 
-  setQty(String(item.qty ?? 1));
+setBags(String(item.bags ?? 0));
+setUnits(String(item.units_per_bag ?? 0));
   setPrice(String(item.price ?? 0));
   setDescription(item.description ?? item.note ?? "");
 }, [visible, item?.id]);
 
   if (!item) return null;
 
-  const step = (delta) => {
-    setQty((q) => {
-      const next = Math.max(0, (parseFloat(q) || 0) + delta);
-      // keep it tidy — avoid long float tails like 2.0000000001
-      return String(Math.round(next * 100) / 100);
-    });
-  };
+const stepValue = (setter, delta) => {
+  setter((value) => {
+    const next = Math.max(0, (parseFloat(value) || 0) + delta);
+    return String(Math.round(next * 100) / 100);
+  });
+};
 
-  const handleApply = () => {
-    onApply?.({
-      qty: parseFloat(qty) || 0,
-      price: parseFloat(price) || 0,
-      description,
-    });
-  };
+const handleApply = () => {
+  const updatedBags = parseFloat(bags) || 0;
+  const updatedUnits = parseFloat(units) || 0;
+
+  onApply?.({
+    bags: updatedBags,
+    units: updatedUnits,
+    qty: updatedBags * updatedUnits,
+    price: parseFloat(price) || 0,
+    description,
+  });
+};
 
   const initial = item.name?.trim()?.charAt(0)?.toUpperCase() || "?";
 
@@ -109,34 +115,67 @@ useEffect(() => {
 
             <View style={styles.bodyWrap}>
               <View style={styles.centerCol}>
-                <Text style={styles.label}>Quantity</Text>
-                <View style={styles.qtyRow}>
-                  <Pressable
-                    style={styles.stepBtn}
-                    onPress={() => step(-1)}
-                    testID="manage-cart-qty-minus"
-                  >
-                    <Text style={styles.stepBtnText}>−</Text>
-                  </Pressable>
-                 <TextInput
-  style={styles.qtyInput}
-  value={qty}
-  onChangeText={(text) => {
-    const cleaned = text.replace(/[^0-9.]/g, "");
-    setQty(cleaned);
-  }}
-  keyboardType="numeric"
-  textAlign="center"
-/>
-                  <Pressable
-                    style={styles.stepBtn}
-                    onPress={() => step(1)}
-                    testID="manage-cart-qty-plus"
-                  >
-                    <Text style={styles.stepBtnText}>+</Text>
-                  </Pressable>
-                </View>
+              <View style={styles.bagsUnitsRow}>
+  {/* BAGS */}
+  <View style={styles.bagUnitColumn}>
+    <Text style={styles.label}>Bags</Text>
 
+    <View style={styles.counterRow}>
+      <Pressable
+        style={styles.counterBtn}
+        onPress={() => stepValue(setBags, -1)}
+      >
+        <Text style={styles.counterBtnText}>−</Text>
+      </Pressable>
+
+      <TextInput
+        style={styles.counterInput}
+        value={bags}
+        onChangeText={(text) =>
+          setBags(text.replace(/[^0-9.]/g, ""))
+        }
+        keyboardType="numeric"
+      />
+
+      <Pressable
+        style={styles.counterBtn}
+        onPress={() => stepValue(setBags, 1)}
+      >
+        <Text style={styles.counterBtnText}>+</Text>
+      </Pressable>
+    </View>
+  </View>
+
+  {/* UNITS */}
+  <View style={styles.bagUnitColumn}>
+    <Text style={styles.label}>Units</Text>
+
+    <View style={styles.counterRow}>
+      <Pressable
+        style={styles.counterBtn}
+        onPress={() => stepValue(setUnits, -1)}
+      >
+        <Text style={styles.counterBtnText}>−</Text>
+      </Pressable>
+
+      <TextInput
+        style={styles.counterInput}
+        value={units}
+        onChangeText={(text) =>
+          setUnits(text.replace(/[^0-9.]/g, ""))
+        }
+        keyboardType="numeric"
+      />
+
+      <Pressable
+        style={styles.counterBtn}
+        onPress={() => stepValue(setUnits, 1)}
+      >
+        <Text style={styles.counterBtnText}>+</Text>
+      </Pressable>
+    </View>
+  </View>
+</View>
                 <Text style={[styles.label, { marginTop: SPACING.xl }]}>
                   Price (₹)
                 </Text>
@@ -344,4 +383,47 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
   },
+  bagsUnitsRow: {
+  flexDirection: "row",
+  gap: SPACING.lg,
+},
+
+bagUnitColumn: {
+  flex: 1,
+},
+
+counterRow: {
+  flexDirection: "row",
+  alignItems: "center",
+},
+
+counterBtn: {
+  width: 42,
+  height: 48,
+  borderRadius: RADIUS.md,
+  borderWidth: 1,
+  borderColor: COLORS.primary,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+counterBtnText: {
+  fontSize: 23,
+  fontWeight: "600",
+  color: COLORS.primary,
+},
+
+counterInput: {
+  flex: 1,
+  minWidth: 0,
+  height: 48,
+  marginHorizontal: 5,
+  borderRadius: RADIUS.md,
+  borderWidth: 1,
+  borderColor: COLORS.divider,
+  fontSize: 18,
+  color: COLORS.textPrimary,
+  textAlign: "center",
+  paddingHorizontal: 2,
+},
 });

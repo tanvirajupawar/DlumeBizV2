@@ -23,6 +23,7 @@
 export default function Header({
   title = "Cart",
     totalOutstanding = null,
+    onOutstandingReportPress,
   leftWidth,
     alwaysShowSearch = false,
   hideSearch = false,
@@ -307,7 +308,7 @@ const closeSearch = () => {
 )}
 
 
- {title === "Customers" && totalOutstanding !== null && (
+{title === "Customers" && totalOutstanding !== null && (
   <View style={styles.outstandingHeader}>
     <View>
       <Text style={styles.outstandingHeaderLabel}>
@@ -321,6 +322,20 @@ const closeSearch = () => {
         })}
       </Text>
     </View>
+
+    <Pressable
+      onPress={onOutstandingReportPress}
+      style={styles.outstandingDownloadBtn}
+      hitSlop={8}
+      testID="outstanding-report-download"
+      accessibilityLabel="Download outstanding report"
+    >
+      <Feather
+        name="download"
+        size={21}
+        color={COLORS.textOnDark}
+      />
+    </Pressable>
   </View>
 )}
 
@@ -569,6 +584,13 @@ outstandingHeaderValue: {
   color: "#FF7676",
   fontSize: 17,
   fontWeight: "800",
+},
+outstandingDownloadBtn: {
+  width: 36,
+  height: 36,
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: RADIUS.md,
 },
 
   });

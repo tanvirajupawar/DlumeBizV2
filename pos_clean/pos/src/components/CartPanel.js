@@ -91,6 +91,14 @@ function CartRow({ item, onPress, onLongPress }) {
 
     const hasBreakdown =
     !isCalculatorItem && item.bags != null && Number(item.units_per_bag) > 0;
+console.log("CART ITEM CHECK:", {
+  name: item.product || item.name,
+  id: item._id || item.id,
+  bags: item.bags,
+  units: item.units_per_bag,
+  isCalculatorItem: item.isCalculatorItem,
+  hasBreakdown,
+});
 
   return (
     <Pressable
@@ -282,14 +290,14 @@ const itemLabel = item.isCalculatorItem
             contentContainerStyle={{ paddingVertical: SPACING.md }}
             showsVerticalScrollIndicator={false}
           >
-            {cartItems.map((it) => (
-              <CartRow
-                key={it.id}
-                item={it}
-                onPress={handleRowPress}
-                onLongPress={handleRowLongPress}
-              />
-            ))}
+         {cartItems.map((it) => (
+  <CartRow
+    key={String(it._id || it.id)}
+    item={it}
+    onPress={handleRowPress}
+    onLongPress={handleRowLongPress}
+  />
+))}
           </ScrollView>
         )}
       </View>

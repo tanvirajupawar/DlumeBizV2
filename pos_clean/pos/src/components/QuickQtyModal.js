@@ -15,10 +15,13 @@ import {
   TextInput,
   Pressable,
   ScrollView,
+  ToastAndroid,
+  Platform,
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getListPrice } from "../utils/unitOptions";
 import { COLORS, SPACING } from "./Colors";
 
 const MAX_CONTENT_WIDTH = 720;
@@ -38,21 +41,13 @@ const toNumber = (text) => {
 
 const round3 = (n) => Math.round(n * 1000) / 1000;
 
-const getProductPrice = (product) =>
-  Number(
-    product?.price ??
-    product?.selling_price ??
-    product?.sale_price ??
-    product?.rate ??
-    product?.sellingPrice ??
-    0
-  ) || 0;
 
 export default function QuickQtyModal({
   visible,
   product,
   onClose,
   onAdd, // ({ bags, units, price }) => void
+  initialUnits, // optional: prefill units per bag
 }) {
   const [bags, setBags] = useState("1");
   const [units, setUnits] = useState("");
@@ -63,17 +58,26 @@ export default function QuickQtyModal({
   const priceRef = useRef(null);
 
   // Reset every time the screen opens for a product.
-  useEffect(() => {
-    if (!visible) return;
+useEffect(() => {
+  if (!visible) return;
 
-    setBags("1");
-    setUnits("");
-    setPrice(String(getProductPrice(product) || ""));
-    setFocused("bags");
+  const u = initialUnits ? String(initialUnits) : "";
+  const p = String(getListPrice(product) || "");
 
-    const t = setTimeout(() => bagsRef.current?.focus(), 300);
-    return () => clearTimeout(t);
-  }, [visible, product]);
+  setBags("1");
+  setUnits(u);
+  setPrice(p);
+
+  const first = !u ? "units" : !p ? "price" : "bags";
+  setFocused(first);
+
+  const t = setTimeout(
+    () =>
+      ({ bags: bagsRef, units: unitsRef, price: priceRef })[first].current?.focus(),
+    300
+  );
+  return () => clearTimeout(t);
+}, [visible, product, initialUnits]);
 
   const bagsNum = toNumber(bags);
   const unitsNum = toNumber(units);

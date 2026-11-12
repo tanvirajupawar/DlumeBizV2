@@ -1853,7 +1853,7 @@ export default function OrdersScreen({
   onEditInvoice,
 }) {  // ── Order list date filter (null = show all dates) ─────────────────
   // Completely independent from the Daily Sales Summary date below.
-  const [listDate, setListDate] = useState(() => new Date());
+const [listDate, setListDate] = useState(null);
 
   // ── Daily Sales Summary date (independent of the order list) ───────
   const [summaryDate, setSummaryDate] = useState(() => new Date());

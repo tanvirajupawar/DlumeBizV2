@@ -15,6 +15,8 @@ import {
   Pressable,
   Alert,
   ScrollView,
+  ToastAndroid,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -31,6 +33,8 @@ import OrderPane from "../../components/OrderPane";
 import CartPanel from "../../components/CartPanel";
 import HeldCartsSheet from "../../components/HeldCartsSheet";
 import QuickQtyModal from "../../components/QuickQtyModal";
+import UnitPickerModal from "../../components/UnitPickerModal";
+import { getUnitOptions, getDefaultUnit, getListPrice } from "../../utils/unitOptions";
 import { WALK_IN_CUSTOMER } from "../../components/CustomerSelector";
 import CustomerSearchScreen from "../Customer/CustomerSearchScreen";
 import CustomerFormScreen from "../Customer/CustomerFormScreen";
@@ -39,6 +43,9 @@ import { COLORS, SPACING, RADIUS } from "../../components/Colors";
 import { createPayment } from "../../api/payment";
 import { updateSale } from "../../api/sale";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system/legacy";
 
 import {
   createCustomerReturn,
@@ -242,31 +249,46 @@ const filteredCustomerResults = useMemo(() => {
 
   return customers
     .filter((c) => {
+      if (c.is_active === false) return false;
       if (!q) return true;
 
-      const name = (
+      const name = String(
         c.customer_name ||
+        c.name ||
         `${c.first_name || ""} ${c.last_name || ""}`
-      )
-        .trim()
-        .toLowerCase();
+      ).toLowerCase();
 
-      const phone = String(c.contact_no_1 || "");
+      const company = String(
+        c.company_name ||
+        c.companyName ||
+        c.company ||
+        ""
+      ).toLowerCase();
 
-      return name.includes(q) || phone.includes(q);
+      const phone = String(
+        c.contact_no_1 ||
+        c.phone ||
+        c.mobile ||
+        ""
+      ).toLowerCase();
+
+      return (
+        name.includes(q) ||
+        company.includes(q) ||
+        phone.includes(q)
+      );
     })
-
-.map((c) => ({
-  id: c._id || c.id,
-  name:
-    c.customer_name ||
-    `${c.first_name || ""} ${c.last_name || ""}`.trim(),
-  phone: c.contact_no_1 || "",
-  company_name: c.company_name || "",
-  is_active: c.is_active,
-  _raw: c,
-}));
-
+    .map((c) => ({
+      id: c._id || c.id,
+      name:
+        c.customer_name ||
+        c.name ||
+        `${c.first_name || ""} ${c.last_name || ""}`.trim(),
+      phone: c.contact_no_1 || c.phone || c.mobile || "",
+      company_name: c.company_name || c.companyName || c.company || "",
+      is_active: c.is_active,
+      _raw: c,
+    }));
 }, [customers, customerSearchText]);
 
 const handleOpenCustomerSearch = () => {
@@ -857,6 +879,288 @@ const getInvoicePayableAmount = (invoice) => {
   return Math.max(0, subtotal - discount);
 };
 
+
+const handlePrintOutstandingReport = async (reportCustomers = []) => {
+  try {
+    if (!Array.isArray(reportCustomers)) {
+      throw new Error("Invalid customer list.");
+    }
+
+    const company = user?.company || {};
+
+    const companyName =
+      company?.name ||
+      company?.company_name ||
+      user?.company_name ||
+      "D'LumeBiz";
+
+    const escapeHtml = (value) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    const money = (value) =>
+      "₹" +
+      Number(value || 0).toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+
+    const getCustomerName = (customer) =>
+      (
+        customer.customer_name ||
+        `${customer.first_name || ""} ${customer.last_name || ""}`
+      ).trim() || "Unnamed Customer";
+
+    const getOutstanding = (customer) => {
+      const amount = Number(
+        customer?.outstanding ??
+        customer?.remaining_outstanding ??
+        0
+      );
+
+      return Number.isFinite(amount) ? amount : 0;
+    };
+
+    const totalOutstanding = reportCustomers.reduce(
+      (total, customer) => total + getOutstanding(customer),
+      0
+    );
+
+    const rows = reportCustomers.map((customer, index) => {
+      const inactive = customer?.is_active === false;
+
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(getCustomerName(customer))}</td>
+          <td>${escapeHtml(
+            customer.company_name || customer.company || "—"
+          )}</td>
+          <td>${escapeHtml(customer.contact_no_1 || "—")}</td>
+        
+          <td class="amount">${money(getOutstanding(customer))}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const reportDate = new Date().toLocaleDateString("en-IN");
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8" />
+
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 25px;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            color: #1E293B;
+            padding: 10px;
+          }
+
+          .header {
+            text-align: center;
+            margin-bottom: 25px;
+          }
+
+          .company {
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 6px;
+          }
+
+          .title {
+            font-size: 17px;
+            font-weight: bold;
+            margin-bottom: 6px;
+          }
+
+          .date {
+            font-size: 11px;
+            color: #64748B;
+          }
+
+       table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 20px;
+}
+
+th, td {
+  padding: 10px 8px;
+  border: 1px solid #CBD5E1;
+  font-size: 11px;
+  text-align: left;
+  vertical-align: middle;
+  overflow-wrap: break-word;
+}
+
+th {
+  background: #F1F5F9;
+  color: #1E2A3A;
+  font-weight: bold;
+}
+
+th:nth-child(1), td:nth-child(1) {
+  width: 7%;
+  text-align: center;
+}
+
+th:nth-child(2), td:nth-child(2) {
+  width: 27%;
+}
+
+th:nth-child(3), td:nth-child(3) {
+  width: 22%;
+}
+
+th:nth-child(4), td:nth-child(4) {
+  width: 20%;
+}
+
+th:nth-child(5), td:nth-child(5) {
+  width: 24%;
+  text-align: left;
+}
+
+.amount {
+  text-align: left;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.total-row td {
+  background: #F1F5F9;
+  font-weight: bold;
+  font-size: 13px;
+  border-top: 2px solid #CBD5E1;
+}
+
+          .footer {
+            margin-top: 25px;
+            text-align: right;
+            font-size: 10px;
+            color: #64748B;
+          }
+        </style>
+      </head>
+
+      <body>
+
+        <div class="header">
+          <div class="company">
+            ${escapeHtml(companyName)}
+          </div>
+
+          <div class="title">
+            CUSTOMER OUTSTANDING REPORT
+          </div>
+
+          <div class="date">
+            Report Date: ${reportDate}
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Sr.</th>
+              <th>Customer Name</th>
+              <th>Company</th>
+              <th>Mobile Number</th>
+              <th>Outstanding (₹)</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              rows ||
+            `<tr><td colspan="5" style="text-align:center">
+                No customers found
+              </td></tr>`
+            }
+          </tbody>
+
+          <tfoot>
+            <tr class="total-row">
+     <td colspan="4" style="text-align:left">
+  TOTAL OUTSTANDING
+</td>
+<td class="amount" style="text-align:left">
+  ${money(totalOutstanding)}
+</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="footer">
+          Total Customers: ${reportCustomers.length}
+        </div>
+
+      </body>
+      </html>
+    `;
+
+    console.log("CUSTOMER OUTSTANDING REPORT:", {
+      customers: reportCustomers.length,
+      totalOutstanding,
+    });
+
+    const file = await Print.printToFileAsync({
+      html,
+      base64: false,
+    });
+
+    if (!file?.uri) {
+      throw new Error("PDF generation failed.");
+    }
+
+    const safeCompanyName = companyName
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+    const pdfUri =
+      `${FileSystem.cacheDirectory}${safeCompanyName}_Outstanding_Report_${Date.now()}.pdf`;
+
+    await FileSystem.copyAsync({
+      from: file.uri,
+      to: pdfUri,
+    });
+
+    const canShare = await Sharing.isAvailableAsync();
+
+    if (!canShare) {
+      Alert.alert(
+        "PDF Created",
+        "PDF was generated, but sharing is unavailable on this device."
+      );
+      return;
+    }
+
+    await Sharing.shareAsync(pdfUri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Customer Outstanding Report",
+      UTI: "com.adobe.pdf",
+    });
+
+  } catch (error) {
+    console.log("OUTSTANDING REPORT PDF ERROR:", error);
+
+    Alert.alert(
+      "PDF Failed",
+      error?.message || "Unable to generate outstanding report."
+    );
+  }
+};
 
 
 const handlePrintCustomerSummary = async (customer, range) => {
@@ -1456,6 +1760,12 @@ const handleProductPress = (product, qtyToAdd = 1) => {
     ? setReturnCartItems
     : setCartItems;
 
+  const savedUnits = Number(unitsMap[productId]);
+  const units =
+    savedUnits > 0
+      ? savedUnits
+      : getDefaultUnit(getUnitOptions(product));
+
   updateCart((prev) => {
     const existing = prev.find(
       (item) => (item._id || item.id) === productId
@@ -1464,7 +1774,10 @@ const handleProductPress = (product, qtyToAdd = 1) => {
     if (existing) {
       return prev.map((item) =>
         (item._id || item.id) === productId
-          ? { ...item, qty: (Number(item.qty) || 0) + qtyToAdd }
+          ? {
+              ...item,
+              qty: (Number(item.qty) || 0) + qtyToAdd,
+            }
           : item
       );
     }
@@ -1474,6 +1787,8 @@ const handleProductPress = (product, qtyToAdd = 1) => {
       {
         ...product,
         qty: qtyToAdd,
+        bags: null,
+        units_per_bag: null,
       },
     ];
   });
@@ -1481,6 +1796,8 @@ const handleProductPress = (product, qtyToAdd = 1) => {
 
 
 const [quickAddProduct, setQuickAddProduct] = useState(null);
+const [quickPrefillUnits, setQuickPrefillUnits] = useState(null);
+const [pickerProduct, setPickerProduct] = useState(null); // long-press chips
 const [unitsMap, setUnitsMap] = useState({});
 const unitsStorageKey = companyId ? `pos:units-per-bag:v1:${companyId}` : null;
 
@@ -1500,37 +1817,81 @@ useEffect(() => {
   };
 }, [unitsStorageKey]);
 
-const handleProductTap = (product) => setQuickAddProduct(product);
+const openEntry = (product, units = null) => {
+  setQuickPrefillUnits(units);
+  setQuickAddProduct(product);
+};
 
-const handleQuickAdd = ({ bags, units, price }) => {
-  const product = quickAddProduct;
-  if (!product) return;
+const closeEntry = () => {
+  setQuickAddProduct(null);
+  setQuickPrefillUnits(null);
+};
 
+// Your existing cart logic, unchanged, now taking the product as an argument.
+const addQuickItem = (product, { bags = 1, units, price }) => {
   const productId = product._id || product.id;
+  const selectedUnits = Number(units);
+  const addedBags = Number(bags) || 1;
   const finalPrice = Number(price) || 0;
+
+  console.log("🟢 ADD QUICK ITEM:", {
+  productName: product.product,
+  productId,
+  bags: addedBags,
+  units: selectedUnits,
+});
+
+  if (!selectedUnits || selectedUnits <= 0) {
+    console.log("INVALID SELECTED UNIT:", units);
+    return;
+  }
 
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
   updateCart((prev) => {
     const existing = prev.find(
-      (i) => (i._id || i.id) === productId
+      (item) =>
+        String(item._id || item.id) === String(productId)
     );
 
-    if (existing) {
-      const sameUnits =
-        existing.bags != null &&
-        Number(existing.units_per_bag) === Number(units);
 
-      return prev.map((i) =>
-        (i._id || i.id) === productId
+    console.log("🟡 EXISTING ITEM:", existing
+  ? {
+      product: existing.product,
+      id: existing._id || existing.id,
+      qty: existing.qty,
+      bags: existing.bags,
+      units_per_bag: existing.units_per_bag,
+    }
+  : "NEW PRODUCT"
+);
+
+    if (existing) {
+      // Recover the previous bag count if it was lost.
+      const previousUnit =
+        Number(existing.units_per_bag) ||
+        Number(unitsMap[productId]) ||
+        getDefaultUnit(getUnitOptions(product));
+
+      const previousBags =
+        Number(existing.bags) > 0
+          ? Number(existing.bags)
+          : previousUnit > 0
+            ? Math.round((Number(existing.qty) || 0) / previousUnit)
+            : 0;
+
+      const totalBags = previousBags + addedBags;
+
+      return prev.map((item) =>
+        String(item._id || item.id) === String(productId)
           ? {
-              ...i,
+              ...item,
+              bags: totalBags,
+              units_per_bag: selectedUnits,
+              qty: totalBags * selectedUnits,
               price: finalPrice,
-              qty: (Number(i.qty) || 0) + bags * units,
-              bags: sameUnits ? existing.bags + bags : null,
-              units_per_bag: sameUnits ? units : null,
             }
-          : i
+          : item
       );
     }
 
@@ -1539,27 +1900,81 @@ const handleQuickAdd = ({ bags, units, price }) => {
       {
         ...product,
         price: finalPrice,
-        qty: bags * units,
-        bags,
-        units_per_bag: units,
+        bags: addedBags,
+        units_per_bag: selectedUnits,
+        qty: addedBags * selectedUnits,
       },
     ];
   });
 
-  // Remember units for next time
   if (unitsStorageKey) {
-    const next = { ...unitsMap, [productId]: units };
-    setUnitsMap(next);
+    const next = {
+      ...unitsMap,
+      [productId]: selectedUnits,
+    };
 
+    setUnitsMap(next);
     AsyncStorage.setItem(
       unitsStorageKey,
       JSON.stringify(next)
-    ).catch(() => {});
+    ).catch(console.log);
   }
-
-  setQuickAddProduct(null);
+};
+// Called by the full entry modal
+const handleQuickAdd = (entry) => {
+  if (!quickAddProduct) return;
+  addQuickItem(quickAddProduct, entry);
+  closeEntry();
 };
 
+// TAP: 1 bag × 120 units at the list price (opens the modal only if no price)
+const handleProductTap = (product) => {
+  const productId = product._id || product.id;
+  const price = getListPrice(product);
+
+  // Use the last selected unit, otherwise use the default unit.
+  const savedUnits = unitsMap[productId];
+
+  const units =
+    Number(savedUnits) > 0
+      ? Number(savedUnits)
+      : getDefaultUnit(getUnitOptions(product));
+
+  if (price > 0) {
+    addQuickItem(product, {
+      bags: 1,
+      units,
+      price,
+    });
+  } else {
+    openEntry(product, units);
+  }
+};
+
+// HOLD: chips in the middle of the screen
+const handleProductLongPress = (product) => setPickerProduct(product);
+
+const handlePickUnit = (units) => {
+  const product = pickerProduct;
+  setPickerProduct(null);
+
+  if (!product) return;
+
+  const price = getListPrice(product);
+
+  // Directly add 1 bag with the selected units
+  addQuickItem(product, {
+    bags: 1,
+    units,
+    price: price || 0,
+  });
+};
+
+const handlePickOther = () => {
+  const product = pickerProduct;
+  setPickerProduct(null);
+  if (product) openEntry(product, null);
+};
 
 
 
@@ -1567,18 +1982,18 @@ const handleUpdateCartItem = (itemId, updates) => {
   const updateCart = isReturnMode ? setReturnCartItems : setCartItems;
 
   updateCart((prev) =>
-    prev.map((item) =>
-      (item._id || item.id) === itemId
-               ? {
-            ...item,
-            qty: updates.qty,
-            price: updates.price,
-            description: updates.description,
-            bags: null,
-            units_per_bag: null,
-          }
-        : item
-    )
+    prev.map((item) => {
+      if ((item._id || item.id) !== itemId) return item;
+
+      return {
+        ...item,
+        qty: updates.qty,
+        bags: updates.bags,
+        units_per_bag: updates.units,
+        price: updates.price,
+        description: updates.description,
+      };
+    })
   );
 };
 
@@ -1963,6 +2378,9 @@ useEffect(() => {
   totalOutstanding={
     activeNav === "customers" ? totalOutstanding : null
   }
+  onOutstandingReportPress={() =>
+  handlePrintOutstandingReport(customers)
+}
   hideSearch={isCalculatorMode && activeNav !== "customers"}
   hideScanner={isCalculatorMode || activeNav === "customers"}
   hideCustomer={activeNav === "customers"}
@@ -2052,7 +2470,8 @@ transportationDetails={transportationDetails}
   activeCategory={activeCategory}
   onSelectCategory={setActiveCategory}
   products={filteredProducts}
-  onProductPress={handleProductTap}
+    onProductPress={handleProductTap}
+  onProductLongPress={handleProductLongPress}
 onAddItem={handleAddProductFromPOS}
 />
   )}
@@ -2357,17 +2776,18 @@ navigation.navigate("PaymentSummary", {
 />
 
     ) : (
-      <CustomerListScreen
-        customers={customers}
-        searchValue={customerListSearch}
-        onCustomerPress={(customer) => setSelectedCustomerAccount(customer)}
-        onPayPress={handleCustomerPay}
-        onPrintSummary={handlePrintCustomerSummary}
-        onOpenInactiveCustomers={() => {
-          setCustomerListSearch("");
-          setShowInactiveCustomersPage(true);
-        }}
-      />
+  <CustomerListScreen
+  customers={customers}
+  searchValue={customerListSearch}
+  onCustomerPress={(customer) => setSelectedCustomerAccount(customer)}
+  onPayPress={handleCustomerPay}
+  onPrintSummary={handlePrintCustomerSummary}
+  onPrintOutstandingReport={handlePrintOutstandingReport}
+  onOpenInactiveCustomers={() => {
+    setCustomerListSearch("");
+    setShowInactiveCustomersPage(true);
+  }}
+/>
     )}
   </View>
 )}
@@ -2469,16 +2889,20 @@ onApply={(updates) => {
 
       />
 
+<UnitPickerModal
+  visible={!!pickerProduct}
+  product={pickerProduct}
+  options={pickerProduct ? getUnitOptions(pickerProduct) : []}
+  onPick={handlePickUnit}
+  onOther={handlePickOther}
+  onClose={() => setPickerProduct(null)}
+/>
 
-      <QuickQtyModal
+<QuickQtyModal
   visible={!!quickAddProduct}
   product={quickAddProduct}
-  initialUnits={
-    quickAddProduct
-      ? unitsMap[quickAddProduct._id || quickAddProduct.id]
-      : undefined
-  }
-  onClose={() => setQuickAddProduct(null)}
+  initialUnits={quickPrefillUnits}
+  onClose={closeEntry}
   onAdd={handleQuickAdd}
 />
 

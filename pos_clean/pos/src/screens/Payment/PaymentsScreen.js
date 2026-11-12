@@ -434,7 +434,7 @@ const SUMMARY_PANEL_WIDTH = 380;
 export default function PaymentsScreen({ onMenuPress = () => {} }) {
   // ── Payment list date filter (null = show all dates) ───────────────
   // Completely independent from the Daily Payment Summary date below.
-  const [listDate, setListDate] = useState(() => new Date());
+const [listDate, setListDate] = useState(null);
 
   // ── Daily Payment Summary date (independent of the payment list) ───
   const [summaryDate, setSummaryDate] = useState(() => new Date());

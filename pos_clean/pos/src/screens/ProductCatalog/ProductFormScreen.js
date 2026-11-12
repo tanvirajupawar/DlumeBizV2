@@ -278,9 +278,14 @@ const applyAdjustment = (direction) => {
     if (form.purchase_price && isNaN(Number(form.purchase_price))) {
       nextErrors.purchase_price = "Must be a number.";
     }
-    if (form.mrp && isNaN(Number(form.mrp))) {
-      nextErrors.mrp = "Must be a number.";
-    }
+ if (!form.mrp.trim()) {
+  nextErrors.mrp = "MRP is required.";
+} else if (
+  !Number.isFinite(Number(form.mrp)) ||
+  Number(form.mrp) <= 0
+) {
+  nextErrors.mrp = "Enter a valid MRP greater than 0.";
+}
  if (!isEditing && form.opening_stock && isNaN(Number(form.opening_stock))) {
   nextErrors.opening_stock = "Must be a number.";
 }
@@ -310,9 +315,7 @@ const payload = {
   purchase_price: form.purchase_price
     ? Number(form.purchase_price)
     : 0,
-  mrp: form.mrp
-    ? Number(form.mrp)
-    : 0,
+mrp: Number(form.mrp),
 
   unit: form.unit.trim(),
   barcode_qty: form.barcode_qty
@@ -533,6 +536,7 @@ if (categoryId) {
     <View style={styles.centerCol}>
       <FormField
         label="MRP"
+          required
         value={form.mrp}
         onChangeText={(v) => updateField("mrp", v)}
         placeholder="0.00"
@@ -566,6 +570,7 @@ if (categoryId) {
           <View style={styles.thirdField}>
             <FormField
               label="MRP"
+                required
               value={form.mrp}
               onChangeText={(v) => updateField("mrp", v)}
               placeholder="0.00"
