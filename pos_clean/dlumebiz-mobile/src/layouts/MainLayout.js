@@ -25,9 +25,9 @@ const { width } = Dimensions.get("window");
 
 
 const menuItems = [
-  { id: 1, icon: "🏠", title: "Home", route: "Home" },
-  { id: 2, icon: "🛒", title: "Sales", route: "SaleOrders" },
-  { id: 3, icon: "👤", title: "Customers", route: "Customers" },
+  // { id: 1, icon: "🏠", title: "Home", route: "Home" },
+    { id: 2, icon: "👤", title: "Customers", route: "Customers" },
+  { id: 3, icon: "🛒", title: "Sales", route: "SaleOrders" },
   { id: 4, icon: "📦", title: "Items", route: "Items", disabled: true },
   { id: 5, icon: "🧾", title: "Purchase", route: "PurchaseInvoice", disabled: true },
   { id: 6, icon: "👥", title: "Vendors Account", route: "Vendors", disabled: true },

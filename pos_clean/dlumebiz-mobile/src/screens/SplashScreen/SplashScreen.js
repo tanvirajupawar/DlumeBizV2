@@ -15,11 +15,11 @@ export default function SplashScreen({ navigation }) {
       try {
         const user = await getUser();
 
-        if (user) {
-          navigation.replace("Home");
-        } else {
-          navigation.replace("Login");
-        }
+      if (user) {
+  navigation.replace("Customers");
+} else {
+  navigation.replace("Login");
+}
       } catch (err) {
         navigation.replace("Login");
       }

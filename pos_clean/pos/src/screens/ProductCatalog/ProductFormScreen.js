@@ -241,7 +241,7 @@ const applyAdjustment = (direction) => {
       });
 
       const response = await fetch(
-        "http://192.168.1.6:3001/api/upload/product-image",
+        "https://back.dlumebiz.com/api/upload/product-image",
         {
           method: "POST",
           headers: {

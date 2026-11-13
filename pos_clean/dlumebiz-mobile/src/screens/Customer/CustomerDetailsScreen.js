@@ -42,7 +42,9 @@ const [company, setCompany] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 const [showReportModal, setShowReportModal] = useState(false);
-
+const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+const [customDateField, setCustomDateField] = useState("from");
+const [showCustomCalendar, setShowCustomCalendar] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState(null);
 const [showCalendar, setShowCalendar] = useState(false);
@@ -72,6 +74,14 @@ const normalizeApiDate = (date) => {
   // works for ISO / timestamp
   return new Date(date).toISOString().split("T")[0];
 };
+
+const formatPreviewDate = (date) => {
+  if (!date) return "Select date";
+
+  const [year, month, day] = date.split("-");
+  return `${day}/${month}/${year}`;
+};
+
 const filteredAccount = account
   .filter((item) => {
     if (!selectedDate) return true;
@@ -406,7 +416,12 @@ useEffect(() => {
 
 
 
-const generateLocalReport = async (reportType, duration = "all") => {
+const generateLocalReport = async (
+  reportType,
+  duration = "all",
+  customFrom = null,
+  customTo = null
+) => {
   try {
     if (!account.length) {
       Alert.alert("No Data", "There are no customer ledger transactions.");
@@ -518,73 +533,91 @@ const generateLocalReport = async (reportType, duration = "all") => {
     });
 
     // Report period
-    const today = new Date();
-    let fromDate = null;
+// Report period
+const today = new Date();
+let periodStartDate = null;
 
-    switch (duration) {
-      case "1d":
-        fromDate = new Date(today);
-        fromDate.setDate(today.getDate() - 1);
-        break;
-      case "1w":
-        fromDate = new Date(today);
-        fromDate.setDate(today.getDate() - 7);
-        break;
-      case "1m":
-        fromDate = new Date(today);
-        fromDate.setMonth(today.getMonth() - 1);
-        break;
-      case "3m":
-        fromDate = new Date(today);
-        fromDate.setMonth(today.getMonth() - 3);
-        break;
-      case "6m":
-        fromDate = new Date(today);
-        fromDate.setMonth(today.getMonth() - 6);
-        break;
-      default:
-        fromDate = null;
-    }
+switch (duration) {
+  case "1d":
+    periodStartDate = new Date(today);
+    periodStartDate.setDate(today.getDate() - 1);
+    break;
 
-    const fromKey = fromDate ? toKey(fromDate) : null;
-    const todayKey = toKey(today);
+  case "1w":
+    periodStartDate = new Date(today);
+    periodStartDate.setDate(today.getDate() - 7);
+    break;
 
-    let rows = rowsWithBalance;
+  case "1m":
+    periodStartDate = new Date(today);
+    periodStartDate.setMonth(today.getMonth() - 1);
+    break;
 
-    if (fromKey) {
-      const previousRows = rowsWithBalance.filter(
-        (item) =>
-          !item.isOpeningBalance &&
-          toKey(getDate(item)) < fromKey
-      );
+  case "3m":
+    periodStartDate = new Date(today);
+    periodStartDate.setMonth(today.getMonth() - 3);
+    break;
 
-      const originalOpening = rowsWithBalance.find(
-        (item) => item.isOpeningBalance
-      );
+  case "6m":
+    periodStartDate = new Date(today);
+    periodStartDate.setMonth(today.getMonth() - 6);
+    break;
 
-      const broughtForward = previousRows.length
-        ? previousRows[previousRows.length - 1]._balance
-        : originalOpening?._balance || 0;
+  case "custom":
+    periodStartDate = new Date(`${customFrom}T00:00:00`);
+    break;
 
-      const periodRows = rowsWithBalance.filter((item) => {
-        if (item.isOpeningBalance) return false;
-        const key = toKey(getDate(item));
-        return key >= fromKey && key <= todayKey;
-      });
+  default:
+    periodStartDate = null;
+}
 
-      const openingRow = broughtForward !== 0
-        ? [{
-            type: "OPENING",
-            isOpeningBalance: true,
-            amount: broughtForward,
-            _amount: broughtForward,
-            _balance: broughtForward,
-            date: fromDate,
-          }]
-        : [];
+const fromKey =
+  duration === "custom"
+    ? customFrom
+    : periodStartDate
+    ? toKey(periodStartDate)
+    : null;
 
-      rows = [...openingRow, ...periodRows];
-    }
+const endKey = duration === "custom" ? customTo : toKey(today);
+
+let rows = rowsWithBalance;
+
+if (fromKey) {
+  const previousRows = rowsWithBalance.filter(
+    (item) =>
+      !item.isOpeningBalance &&
+      toKey(getDate(item)) < fromKey
+  );
+
+  const originalOpening = rowsWithBalance.find(
+    (item) => item.isOpeningBalance
+  );
+
+  const broughtForward = previousRows.length
+    ? previousRows[previousRows.length - 1]._balance
+    : originalOpening?._balance || 0;
+
+  const periodRows = rowsWithBalance.filter((item) => {
+    if (item.isOpeningBalance) return false;
+
+    const key = toKey(getDate(item));
+    return key >= fromKey && key <= endKey;
+  });
+
+  const openingRow =
+    broughtForward !== 0
+      ? [{
+          type: "OPENING",
+          isOpeningBalance: true,
+          amount: broughtForward,
+          _amount: broughtForward,
+          _balance: broughtForward,
+          date: periodStartDate,
+        }]
+      : [];
+
+  rows = [...openingRow, ...periodRows];
+}
 
     if (!rows.length) {
       Alert.alert("No Data", "No transactions found for this period.");
@@ -725,9 +758,13 @@ const generateLocalReport = async (reportType, duration = "all") => {
       rows.length ? rows[rows.length - 1]._balance : 0
     );
 
-    const periodLabel = fromDate
-      ? `${formatDate(fromDate)} - ${formatDate(today)}`
-      : "All Dates";
+const periodLabel = fromKey
+  ? `${formatDate(periodStartDate)} - ${
+      duration === "custom"
+        ? formatDate(new Date(`${customTo}T00:00:00`))
+        : formatDate(today)
+    }`
+  : "All Dates";
 
     const html = `
       <!DOCTYPE html>
@@ -2076,7 +2113,6 @@ onPress={generateReceiptReport}   >
 {showReportModal && (
   <View style={styles.modalOverlay}>
     <View style={styles.reportModal}>
-
       <Text style={styles.reportTitle}>Select Report Duration</Text>
 
       {[
@@ -2092,7 +2128,8 @@ onPress={generateReceiptReport}   >
           style={styles.reportOption}
           onPress={() => {
             setShowReportModal(false);
-          generateLocalReport("SALE", item.value);
+            setShowCustomDatePicker(false);
+            generateLocalReport("SALE", item.value);
           }}
         >
           <Text style={styles.reportOptionText}>{item.label}</Text>
@@ -2100,18 +2137,189 @@ onPress={generateReceiptReport}   >
         </TouchableOpacity>
       ))}
 
+      {/* CUSTOM DATE OPTION */}
+      <TouchableOpacity
+        style={styles.reportOption}
+     onPress={() => {
+  setFromDate("");
+  setToDate("");
+  setCustomDateField("from");
+  setShowCustomDatePicker(true);
+  setShowCustomCalendar(true);
+}}
+      >
+        <Text style={styles.reportOptionText}>Custom Date</Text>
+        <Ionicons name="calendar-outline" size={18} color="#2563EB" />
+      </TouchableOpacity>
+
+      {showCustomDatePicker && (
+        <View style={{ marginTop: 12 }}>
+          <Text style={{ fontWeight: "700", marginBottom: 10 }}>
+            Choose Custom Period
+          </Text>
+
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor:
+                  customDateField === "from" ? "#DBEAFE" : "#F1F5F9",
+                borderWidth: 1,
+                borderColor:
+                  customDateField === "from" ? "#2563EB" : "#E5E7EB",
+              }}
+            onPress={() => {
+  setCustomDateField("from");
+  setShowCustomCalendar(true);
+}}
+            >
+              <Text style={{ fontSize: 11, color: "#64748B" }}>FROM DATE</Text>
+              <Text style={{ fontWeight: "700", color: "#1E293B" }}>
+              {formatPreviewDate(fromDate)}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 8,
+                backgroundColor:
+                  customDateField === "to" ? "#DBEAFE" : "#F1F5F9",
+                borderWidth: 1,
+                borderColor:
+                  customDateField === "to" ? "#2563EB" : "#E5E7EB",
+              }}
+           onPress={() => {
+  setCustomDateField("to");
+  setShowCustomCalendar(true);
+}}
+            >
+              <Text style={{ fontSize: 11, color: "#64748B" }}>TO DATE</Text>
+              <Text style={{ fontWeight: "700", color: "#1E293B" }}>
+            {formatPreviewDate(toDate)}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+      
+
+          <TouchableOpacity
+            style={[
+              styles.reportOption,
+              {
+                backgroundColor: "#2563EB",
+                justifyContent: "center",
+                marginTop: 8,
+              },
+            ]}
+            disabled={!fromDate || !toDate || fromDate > toDate}
+            onPress={() => {
+              setShowReportModal(false);
+              setShowCustomDatePicker(false);
+              generateLocalReport("SALE", "custom", fromDate, toDate);
+            }}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>
+              Generate Custom Report
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <TouchableOpacity
         style={styles.reportCancel}
-        onPress={() => setShowReportModal(false)}
+        onPress={() => {
+          setShowReportModal(false);
+          setShowCustomDatePicker(false);
+        }}
       >
         <Text style={styles.reportCancelText}>Cancel</Text>
       </TouchableOpacity>
-
     </View>
   </View>
 )}
 
+{showCustomCalendar && (
+  <View style={styles.customCalendarOverlay}>
+    <TouchableOpacity
+      style={styles.customCalendarBackdrop}
+      activeOpacity={1}
+      onPress={() => setShowCustomCalendar(false)}
+    />
 
+    <View style={styles.customCalendarCard}>
+      <View style={styles.customCalendarHeader}>
+        <Text style={styles.reportTitle}>
+          {customDateField === "from" ? "Select From Date" : "Select To Date"}
+        </Text>
+
+        <TouchableOpacity
+          onPress={() => setShowCustomCalendar(false)}
+        >
+          <Ionicons name="close" size={22} color="#64748B" />
+        </TouchableOpacity>
+      </View>
+
+      <Calendar
+        current={
+          customDateField === "from"
+            ? fromDate || undefined
+            : toDate || fromDate || undefined
+        }
+        maxDate={
+          customDateField === "from"
+            ? toDate || new Date().toISOString().split("T")[0]
+            : new Date().toISOString().split("T")[0]
+        }
+        minDate={
+          customDateField === "to" ? fromDate || undefined : undefined
+        }
+      onDayPress={(day) => {
+  if (customDateField === "from") {
+    setFromDate(day.dateString);
+    setToDate("");
+    setCustomDateField("to");
+    // Keep calendar open to select To Date
+  } else {
+    setToDate(day.dateString);
+    setShowCustomCalendar(false);
+    // Close only the calendar, not the custom date form
+  }
+}}
+        markedDates={{
+          ...(fromDate && {
+            [fromDate]: {
+              selected: true,
+              startingDay: true,
+              color: "#2563EB",
+              textColor: "#FFFFFF",
+            },
+          }),
+          ...(toDate && {
+            [toDate]: {
+              selected: true,
+              endingDay: true,
+              color: "#2563EB",
+              textColor: "#FFFFFF",
+            },
+          }),
+        }}
+        markingType="period"
+        theme={{
+          todayTextColor: "#2563EB",
+          arrowColor: "#2563EB",
+        }}
+      />
+
+      <Text style={styles.customCalendarHint}>
+        Select your date to continue.
+      </Text>
+    </View>
+  </View>
+)}
     </SafeAreaView>
   </MainLayout>
 );
@@ -3241,6 +3449,44 @@ returnAmount: {
   fontSize: 15,
   fontWeight: "800",
   color: "#C2410C",
+},
+customCalendarOverlay: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 999,
+  elevation: 999,
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+customCalendarBackdrop: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: "rgba(0,0,0,0.55)",
+},
+
+customCalendarCard: {
+  width: "90%",
+  backgroundColor: "#FFFFFF",
+  borderRadius: 18,
+  padding: 14,
+  elevation: 20,
+},
+
+customCalendarHeader: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 10,
+},
+
+customCalendarHint: {
+  fontSize: 11,
+  color: "#64748B",
+  textAlign: "center",
+  marginTop: 8,
 },
 
 });
