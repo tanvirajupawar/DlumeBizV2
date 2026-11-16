@@ -556,15 +556,23 @@ const OrderListRow = React.memo(function OrderListRow({ order, isActive, onPress
       activeOpacity={0.7}
       onPress={onPress}
     >
-      <View style={styles.listRowTopLine}>
-       <Text style={styles.listRowId} numberOfLines={1}>
-  {order.customer || order.companyName || "Walk-in"}
-</Text>
-        <Text style={styles.listRowAmount}>
-          {"\u20B9"}
-          {money(order.total)}
-        </Text>
-      </View>
+    <View style={styles.listRowTopLine}>
+  <View style={{ flex: 1, paddingRight: 10 }}>
+    <Text style={styles.listRowId} numberOfLines={1}>
+      {order.customer || "Walk-in"}
+    </Text>
+
+    {order.companyName && order.companyName !== "Walk-in" && (
+      <Text style={styles.listRowCompany} numberOfLines={1}>
+        {order.companyName}
+      </Text>
+    )}
+  </View>
+
+  <Text style={styles.listRowAmount}>
+    {"\u20B9"}{money(order.total)}
+  </Text>
+</View>
       <View style={styles.listRowBottomLine}>
        <Text style={styles.listRowCustomer} numberOfLines={1}>
   {order.type === "return"
@@ -3715,6 +3723,12 @@ transportationValue: {
   fontSize: 15,
   fontWeight: "600",
   color: colors.textPrimary,
+},
+listRowCompany: {
+  fontSize: 13,
+  color: colors.textMuted,
+  fontWeight: "500",
+  marginTop: 3,
 },
 
 });

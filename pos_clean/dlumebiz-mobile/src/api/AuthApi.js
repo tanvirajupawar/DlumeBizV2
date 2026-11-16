@@ -1,6 +1,7 @@
 
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import CookieManager from "@react-native-cookies/cookies";
 import VARIABLE from "../constants/variables";
 
 // =====================================
@@ -73,12 +74,29 @@ api.interceptors.request.use(
 // =====================================
 // REFRESH ACCESS TOKEN
 // =====================================
-
 export const refreshAccessToken = async () => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {
-        const response = await refreshApi.post("/auth/refresh");
+        // Get saved cookies for your API domain
+        const cookies = await CookieManager.get(VARIABLE.API_URL);
+
+        const refreshToken = cookies?.refreshToken?.value;
+
+        if (!refreshToken) {
+          throw new Error("Refresh cookie not found on device");
+        }
+
+        // Send the existing backend refresh request
+        const response = await refreshApi.post(
+          "/auth/refresh",
+          {},
+          {
+            headers: {
+              Cookie: `refreshToken=${refreshToken}`,
+            },
+          }
+        );
 
         const newToken = response.data?.data?.accessToken;
 
@@ -89,14 +107,25 @@ export const refreshAccessToken = async () => {
         await AsyncStorage.setItem("token", newToken);
 
         return newToken;
+
       } catch (error) {
-        await AsyncStorage.multiRemove([
-          "token",
-          "user",
-          "company",
-        ]);
+        const status = error.response?.status;
+
+        if (status === 401 || status === 403) {
+          await AsyncStorage.multiRemove([
+            "token",
+            "user",
+            "company",
+          ]);
+        }
+
+        console.log(
+          "REFRESH ERROR:",
+          error.response?.data || error.message
+        );
 
         throw error;
+
       } finally {
         refreshPromise = null;
       }
@@ -105,7 +134,6 @@ export const refreshAccessToken = async () => {
 
   return refreshPromise;
 };
-
 // =====================================
 // RESPONSE INTERCEPTOR
 // =====================================
@@ -156,7 +184,15 @@ export const loginUser = async (login, password) => {
       throw new Error("Invalid login response from server");
     }
 
-    await saveAuthData(data.user, data.accessToken);
+  await saveAuthData(data.user, data.accessToken);
+
+// Check whether the refresh cookie was saved
+const cookies = await CookieManager.get(VARIABLE.API_URL);
+
+console.log(
+  "REFRESH COOKIE SAVED:",
+  !!cookies?.refreshToken?.value
+);
 
     return response.data;
   } catch (error) {

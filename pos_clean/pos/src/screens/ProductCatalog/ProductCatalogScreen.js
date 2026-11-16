@@ -500,7 +500,7 @@ const renderCategoryTab = ({ item }) => {
 
   // ── Render: table row (All tab) ──────────────────────────────────────────
 
-  const renderTableRow = useCallback(({ item }) => {
+const renderTableRow = useCallback(({ item, index }) => {
     const qty = Number(item.stock ?? item.total_stock ?? 0);
     console.log("PRODUCT STOCK DEBUG:", item.product, {
   stock: item.stock,
@@ -524,6 +524,10 @@ const renderCategoryTab = ({ item }) => {
         onPress={() => handleRowPress(item)}
         activeOpacity={0.6}
       >
+<Text style={styles.colSrNo}>
+  {index + 1}
+</Text>
+
         <View style={styles.colProduct}>
       
           <Text numberOfLines={1} style={[styles.colProductName, inactive && styles.colProductNameInactive]}>
@@ -612,8 +616,9 @@ const renderMiniCard = useCallback(({ item }) => (
     // ── All tab → table ───────────────────────────────────────────────────
     return (
       <>
-        <View style={styles.tableHeader}>
-          <Text style={styles.headerProduct}>Product</Text>
+      <View style={styles.tableHeader}>
+  <Text style={styles.headerSrNo}>Sr. No.</Text>
+  <Text style={styles.headerProduct}>Product</Text>
           <Text style={styles.headerCell}>Type</Text>
           <Text style={styles.headerCell}>Size</Text>
 <Text style={styles.headerCell}>MRP</Text>
@@ -868,6 +873,21 @@ addCategoryText: {
   color: "#FFFFFF",
   fontSize: 18,
   fontWeight: "700",
+},
+headerSrNo: {
+  width: 65,
+  color: "#94A3B8",
+  fontWeight: "700",
+  fontSize: 13,
+  textAlign: "center",
+},
+
+colSrNo: {
+  width: 65,
+  textAlign: "center",
+  color: "#64748B",
+  fontSize: 14,
+  fontWeight: "600",
 },
 });
 

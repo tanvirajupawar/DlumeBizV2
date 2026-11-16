@@ -83,8 +83,12 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import CategoryModal from "../../components/CategoryModal";
 import CalculatorPane from "../../components/CalculatorPane";
 import ProfileScreen from "../Profile/ProfileScreen";
-import { createCategory, updateCategory, deleteCategory } from "../../api/category";
-
+import {
+  fetchCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+} from "../../api/category";
 import { getCached, setCached, getCachedSync } from "../../utils/cache";
 
 const { SunmiScanner } = NativeModules;
@@ -123,7 +127,8 @@ const [paymentLoading, setPaymentLoading] = useState(false);
 const [paymentFetching, setPaymentFetching] = useState(false);
 const [customerPaymentResult, setCustomerPaymentResult] = useState(null);
   const [profileVisible, setProfileVisible] = useState(false);
-  const [searchText, setSearchText] = useState("");
+const [searchText, setSearchText] = useState(""); // POS dashboard search
+const [catalogSearchText, setCatalogSearchText] = useState(""); // Products list search
 const [cartItems, setCartItems] = useState([]);
 const [isReturnMode, setIsReturnMode] = useState(false);
 
@@ -684,31 +689,30 @@ const [selectedCatalogCategory, setSelectedCatalogCategory] =
   }
 };
 
-  const filteredProducts = useMemo(() => {
-    let data = [...products];
+const filteredProducts = useMemo(() => {
+  // Dashboard should show ACTIVE products only
+  let data = products.filter((p) => p.is_active !== false);
 
-    if (activeCategory !== "all") {
-      data = data.filter((p) => {
-        const catId = p.category_id || p.category?._id;
-        return String(catId) === String(activeCategory);
-      });
-    }
+  if (activeCategory !== "all") {
+    data = data.filter((p) => {
+      const catId = p.category_id || p.category?._id;
+      return String(catId) === String(activeCategory);
+    });
+  }
 
-if (!isScanningRef.current && searchText.trim()) {
-  const q = searchText.trim().toLowerCase();
+  if (!isScanningRef.current && searchText.trim()) {
+    const q = searchText.trim().toLowerCase();
 
-  data = data.filter((p) => {
-    const name = (p.product || "").toLowerCase();
-    const barcode = String(p.barcode ?? "").trim().toLowerCase();
+    data = data.filter((p) => {
+      const name = (p.product || "").toLowerCase();
+      const barcode = String(p.barcode ?? "").trim().toLowerCase();
 
-    return (
-      name.includes(q) ||
-      barcode.includes(q)
-    );
-  });
-}
-    return data;
-  }, [products, activeCategory, searchText]);
+      return name.includes(q) || barcode.includes(q);
+    });
+  }
+
+  return data;
+}, [products, activeCategory, searchText]);
 
   const navigation = useNavigation();
   const route = useRoute();
@@ -1579,47 +1583,76 @@ useEffect(() => {
       String(customer._id || customer.id) === String(customerId)
   );
 
-  const prefilledItems = invoiceItems.map((item, index) => {
-    const productId =
-      item.product_id?._id ||
-      item.product_id ||
-      item.product?._id ||
-      item.product?.id ||
-      item._id ||
-      item.id;
+const prefilledItems = invoiceItems.map((item, index) => {
+  const productId =
+    item.product_id?._id ||
+    item.product_id ||
+    item.product?._id ||
+    item.product?.id ||
+    item._id ||
+    item.id;
 
-    const matchedProduct = products.find(
-      (product) =>
-        String(product._id || product.id) === String(productId)
-    );
+  const matchedProduct = products.find(
+    (product) =>
+      String(product._id || product.id) === String(productId)
+  );
 
-    const qty = Number(item.qty ?? item.quantity ?? 1);
-    const price = Number(
-      item.price ??
-      item.rate ??
-      item.selling_price ??
-      item.unit_price ??
-      0
-    );
+  const bags = Number(
+    item.bags ??
+    item.bag ??
+    item.bag_count ??
+    item.no_of_bags ??
+    0
+  );
 
-    return {
-      ...(matchedProduct || {}),
-      ...item,
-      _id: matchedProduct?._id || productId || `edit-item-${index}`,
-      id: matchedProduct?.id || productId || `edit-item-${index}`,
-      product:
-        item.product_name ||
-        item.product?.product ||
-        item.product ||
-        matchedProduct?.product ||
-        item.description ||
-        item.name ||
-        "Item",
-      description: item.description || "",
-      qty,
-      price,
-    };
-  });
+  const units = Number(
+    item.units_per_bag ??
+    item.unitsPerBag ??
+    item.unit_per_bag ??
+    item.units ??
+    item.unit ??
+    0
+  );
+
+  const qty = Number(
+    item.qty ??
+    item.quantity ??
+    (bags > 0 && units > 0 ? bags * units : 1)
+  );
+
+  const price = Number(
+    item.price ??
+    item.rate ??
+    item.selling_price ??
+    item.unit_price ??
+    0
+  );
+
+  return {
+    ...(matchedProduct || {}),
+    ...item,
+
+    _id: matchedProduct?._id || productId || `edit-item-${index}`,
+    id: matchedProduct?.id || productId || `edit-item-${index}`,
+
+    product:
+      item.product_name ||
+      item.product?.product ||
+      item.product ||
+      matchedProduct?.product ||
+      item.description ||
+      item.name ||
+      "Item",
+
+    description: item.description || "",
+
+    qty,
+    price,
+
+    bags: bags > 0 ? bags : null,
+    units_per_bag: units > 0 ? units : null,
+  };
+});
 
   setCartItems(prefilledItems);
   setSelectedCustomer(matchedCustomer || customerValue || WALK_IN_CUSTOMER);
@@ -2170,13 +2203,22 @@ const handleUpdateInvoice = async (confirmRefund = false) => {
       ? null
       : selectedCustomer?._id || selectedCustomer?.id;
 
-  const items = cartItems.map((item) => ({
-    product_id: item.product_id || item._id || item.id || null,
-    product_name: item.product || item.product_name || item.name || "Item",
-    description: item.description || "",
-    qty: Number(item.qty) || 0,
-    rate: Number(item.price ?? item.rate ?? 0),
-  }));
+const items = cartItems.map((item) => ({
+  product_id: item.product_id || item._id || item.id || null,
+
+  product_name:
+    item.product || item.product_name || item.name || "Item",
+
+  description: item.description || "",
+
+  qty: Number(item.qty) || 0,
+
+  bags: Number(item.bags) || 0,
+
+  units_per_bag: Number(item.units_per_bag) || 0,
+
+  rate: Number(item.price ?? item.rate ?? 0),
+}));
 
   if (items.some((item) => item.qty <= 0 || item.rate < 0)) {
     Alert.alert("Invalid Items", "Please check item quantities and prices.");
@@ -2332,9 +2374,11 @@ const handlePaymentSubmit = async ({
 };
 
 
-
 useEffect(() => {
-  if (activeNav !== "customers") setCustomerListSearch("");
+  // Clear searches whenever the user switches screens
+  setSearchText("");
+  setCatalogSearchText("");
+  setCustomerListSearch("");
 }, [activeNav]);
 
 
@@ -2717,8 +2761,8 @@ navigation.navigate("PaymentSummary", {
   products={products}
   categories={categories.filter((c) => c._id !== "all")}
   refreshCategories={loadCategories}
-  searchValue={searchText}
-  onSearchChange={handleSearchChange}
+searchValue={catalogSearchText}
+onSearchChange={setCatalogSearchText}
   refreshProducts={loadProducts}
   onMenuPress={() => setSidebarCollapsed(false)}
   onOpenProductForm={handleOpenProductForm}
@@ -2856,20 +2900,37 @@ navigation.navigate("PaymentSummary", {
   loading={categoryLoading}
   onClose={() => setCategoryModalVisible(false)}
   onDelete={editingCategory ? () => handleDeleteCategory(editingCategory) : undefined}
-  onSave={async (formData) => {
-    try {
-      setCategoryLoading(true);
-      if (editingCategory) {
-        await updateCategory(editingCategory._id, formData);
-      } else {
-        await createCategory(formData);
-      }
-      setCategoryModalVisible(false);
-      loadCategories();
-    } finally {
-      setCategoryLoading(false);
+onSave={async (formData) => {
+  try {
+    setCategoryLoading(true);
+
+    console.log("CATEGORY SAVE PAYLOAD:", formData);
+
+    if (editingCategory) {
+      await updateCategory(editingCategory._id, formData);
+    } else {
+      await createCategory(formData);
     }
-  }}
+
+await loadCategories();
+setCategoryModalVisible(false);
+setEditingCategory(null);
+
+  } catch (err) {
+    console.log("CATEGORY SAVE ERROR:", {
+      status: err.response?.status,
+      data: err.response?.data,
+      message: err.message,
+    });
+
+    Alert.alert(
+      "Category Save Failed",
+      err.response?.data?.message || "Unable to save category."
+    );
+  } finally {
+    setCategoryLoading(false);
+  }
+}}
 />
 
       <ManageCartItemModal

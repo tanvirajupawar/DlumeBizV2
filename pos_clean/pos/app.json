@@ -1,7 +1,8 @@
+
 {
   "expo": {
-    "name": "pos",
-    "slug": "pos",
+    "name": "D'LumeBiz POS",
+    "slug": "dlumebiz-pos",
     "version": "1.0.0",
     "orientation": "landscape",
     "icon": "./assets/icon.png",
@@ -11,10 +12,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#1E2A3A",
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "package": "com.tanvipawar.pos",
       "usesCleartextTraffic": true

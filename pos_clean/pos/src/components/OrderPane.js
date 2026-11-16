@@ -294,10 +294,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  tabBarList: {
-    flexGrow: 0,
-    flexShrink: 0,
-  },
+tabBarList: {
+  flex: 1,
+  minWidth: 0,
+  flexShrink: 1,
+},
 
   tabRow: {
     paddingHorizontal: GRID_PADDING_H,
@@ -424,18 +425,18 @@ const styles = StyleSheet.create({
     paddingBottom: GRID_PADDING_H,
   },
 
-  addItemButton: {
-    height: 36,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: colors.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    marginRight: 10,
-    alignSelf: "center",
-  },
+addItemButton: {
+  width: 42,
+  height: 36,
+  paddingHorizontal: 0,
+  borderRadius: 8,
+  backgroundColor: colors.primary,
+  alignItems: "center",
+  justifyContent: "center",
+  marginHorizontal: 8,
+  flexShrink: 0,
+  alignSelf: "center",
+},
 
   tabBarWrapper: {
     minHeight: TAB_BAR_HEIGHT,

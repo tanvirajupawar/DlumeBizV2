@@ -30,11 +30,7 @@ export const buildReceipt = ({
   companyEmail: company?.email || user?.email || "",
 
   invoiceNo: sale.invoice_no || sale.invoiceNo || "",
-invoiceDate:
-  sale?.invoice_date ||
-  sale?.order_date ||
-  saleDate ||
-  new Date().toLocaleDateString("en-GB"),
+invoiceDate: new Date().toISOString(),
 
   customerName:
     customer?.company_name ||

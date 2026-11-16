@@ -1062,9 +1062,18 @@ const oldOpeningBalancePayments = normalizedCustomerId
 
       const totalAmount = Number((subtotal - discount).toFixed(2));
 
-    // Keep the original invoice date when editing.
-// Editing should not move the invoice to a new date.
-const selectedInvoiceDate = sale.invoice_date;
+// Update invoice date when editing
+let selectedInvoiceDate = sale.invoice_date || new Date();
+
+if (invoice_date) {
+  const parsedDate = new Date(`${invoice_date}T12:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    fail(400, "Invalid invoice date");
+  }
+
+  selectedInvoiceDate = parsedDate;
+}
 
       // ------------------------------------------------
       // 1. LOAD CUSTOMER INVOICES AND THEIR ALLOCATIONS
@@ -1745,8 +1754,9 @@ if (company.payment_mode === "CREDIT" && sale.customer_id) {
     existingLedgerEntry.credit = 0;
     existingLedgerEntry.description = `Invoice ${sale.invoice_no}`;
 
-    // Do NOT change transaction_date or createdAt.
-    await existingLedgerEntry.save({ session });
+existingLedgerEntry.transaction_date = sale.invoice_date;
+
+await existingLedgerEntry.save({ session });
 
   } else {
 

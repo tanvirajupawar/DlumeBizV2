@@ -50,12 +50,19 @@ export const createCategory = async (req, res) => {
       message: "Category Created Successfully",
     });
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Category already exists",
-      });
-    }
+  if (error.code === 11000) {
+  console.error("CATEGORY DUPLICATE KEY:", {
+    message: error.message,
+    keyPattern: error.keyPattern,
+    keyValue: error.keyValue,
+  });
+
+  return res.status(409).json({
+    success: false,
+    message: "Category already exists",
+    details: error.keyValue,
+  });
+}
 
     console.error("CREATE CATEGORY ERROR:", error);
     return res.status(500).json({

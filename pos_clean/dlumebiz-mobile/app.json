@@ -1,35 +1,27 @@
+
 {
   "expo": {
     "name": "D'Lumebiz",
-    "slug": "dlumebiz-mobile",
-    "version": "1.0.0",
+    "slug": "dlumebizApp",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "ios": {
-      "supportsTablet": true
-    },
+
     "android": {
-"adaptiveIcon": {
-  "foregroundImage": "./assets/icon.png",
-  "backgroundColor": "#1E63F3"
-},
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#1E63F3"
+      },
       "edgeToEdgeEnabled": true,
-      "package": "com.tanvipawar.dlumebizmobile"
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "plugins": [
-      "@react-native-community/datetimepicker",
-      "expo-web-browser",
-      "expo-font"
-    ]
+      "package": "com.tanvipawar.dlumebizApp"
+    }
   }
 }

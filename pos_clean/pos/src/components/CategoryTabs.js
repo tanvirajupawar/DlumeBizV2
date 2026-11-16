@@ -18,9 +18,12 @@ export default function CategoryTabs({
 }) {
   return (
     <View style={styles.wrap} testID="category-tabs">
+
+      {/* Scrollable category tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.tabsScroll}
         contentContainerStyle={styles.row}
       >
         {categories.map((c) => {
@@ -46,23 +49,24 @@ export default function CategoryTabs({
             </Pressable>
           );
         })}
-
-        {/* Add Item button at the end of the categories */}
-        <Pressable
-          onPress={onAddItem}
-          style={styles.addItemButton}
-          accessibilityRole="button"
-          accessibilityLabel="Add item"
-          testID="category-add-item"
-        >
-          <MaterialCommunityIcons
-            name="plus-circle-outline"
-            size={20}
-            color={COLORS.blue}
-          />
-          <Text style={styles.addItemText}>Add Item</Text>
-        </Pressable>
       </ScrollView>
+
+      {/* Fixed Add Item button */}
+      <Pressable
+        onPress={onAddItem}
+        style={styles.addItemButton}
+        accessibilityRole="button"
+        accessibilityLabel="Add item"
+        testID="category-add-item"
+      >
+        <MaterialCommunityIcons
+          name="plus-circle-outline"
+          size={20}
+          color={COLORS.blue}
+        />
+        <Text style={styles.addItemText}>Add Item</Text>
+      </Pressable>
+
     </View>
   );
 }
@@ -70,16 +74,26 @@ export default function CategoryTabs({
 const styles = StyleSheet.create({
   wrap: {
     height: 56,
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: COLORS.bg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.divider,
-    justifyContent: "flex-end",
+    paddingLeft: SPACING.lg,
+    paddingRight: SPACING.md,
   },
+
+  tabsScroll: {
+    flex: 1,
+    minWidth: 0,
+  },
+
   row: {
-    paddingHorizontal: SPACING.lg,
+    alignItems: "center",
     gap: SPACING.xl,
-    alignItems: "flex-end",
+    paddingRight: SPACING.md,
   },
+
   tab: {
     flexShrink: 0,
     height: 44,
@@ -87,16 +101,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 6,
   },
+
   label: {
     fontSize: 18,
     color: COLORS.textSecondary,
     fontWeight: "500",
   },
+
   labelActive: {
     color: COLORS.textPrimary,
     fontSize: 19,
     fontWeight: "700",
   },
+
   underline: {
     height: 3,
     marginTop: 6,
@@ -104,21 +121,26 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.pill,
     backgroundColor: "transparent",
   },
+
   underlineActive: {
     backgroundColor: COLORS.blue,
   },
+
   addItemButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    height: 44,
+    height: 40,
     paddingHorizontal: 12,
-    marginBottom: 2,
+    marginLeft: 8,
     borderWidth: 1,
     borderColor: COLORS.blue,
     borderRadius: RADIUS.pill,
+    flexShrink: 0,
+    backgroundColor: COLORS.bg,
   },
+
   addItemText: {
     fontSize: 15,
     fontWeight: "700",

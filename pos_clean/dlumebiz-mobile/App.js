@@ -38,7 +38,10 @@ export default function App() {
           backgroundColor="#1E293B"
         />
 
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+  initialRouteName="Splash"
+  screenOptions={{ headerShown: false }}
+>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Splash" component={SplashScreen} />
           <Stack.Screen name="Home" component={DashboardScreen} />
@@ -68,7 +71,7 @@ export default function App() {
 <Stack.Screen
   name="PaymentFailed"
   component={PaymentFailScreen}
-/>
+/>  
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

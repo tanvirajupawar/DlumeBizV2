@@ -1,29 +1,48 @@
 
 import { View, StyleSheet, Animated } from "react-native";
 import { useEffect, useRef } from "react";
-import { getUser } from "../../api/AuthApi";
+import { getUser, getToken } from "../../api/AuthApi";
 
 export default function SplashScreen({ navigation }) {
   const scale = useRef(new Animated.Value(0.7)).current;
 
   useEffect(() => {
+    let isMounted = true;
+
+    const checkSession = async () => {
+      try {
+        const [token, user] = await Promise.all([
+          getToken(),
+          getUser(),
+        ]);
+
+        if (!isMounted) return;
+
+        if (token && user) {
+          navigation.replace("Customers");
+        } else {
+          navigation.replace("Login");
+        }
+      } catch (error) {
+        console.log("SESSION RESTORE ERROR:", error);
+        
+        if (isMounted) {
+          navigation.replace("Login");
+        }
+      }
+    };
+
     Animated.timing(scale, {
       toValue: 1.25,
       duration: 900,
       useNativeDriver: true,
-    }).start(async () => {
-      try {
-        const user = await getUser();
-
-      if (user) {
-  navigation.replace("Customers");
-} else {
-  navigation.replace("Login");
-}
-      } catch (err) {
-        navigation.replace("Login");
-      }
+    }).start(() => {
+      checkSession();
     });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (

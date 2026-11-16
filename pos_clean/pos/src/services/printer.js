@@ -1,11 +1,40 @@
 // services/printer.js
 
-import { NativeModules } from "react-native";
+import {
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { SunmiPrinter, BluetoothPrinter } = NativeModules;
 
 const PRINTER_STORAGE_KEY = "@dlume_selected_printer";
+
+const requestBluetoothPermission = async () => {
+  if (Platform.OS !== "android") return true;
+
+  // Android 11 and below
+  if (Platform.Version < 31) return true;
+
+  try {
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      {
+        title: "Bluetooth Permission",
+        message:
+          "D'LumeBiz needs Bluetooth permission to connect to your printer.",
+        buttonPositive: "Allow",
+        buttonNegative: "Deny",
+      }
+    );
+
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (error) {
+    console.log("BLUETOOTH PERMISSION ERROR:", error);
+    return false;
+  }
+};
 
 let isSunmi = null;
 let sunmiConnecting = null;
@@ -112,35 +141,31 @@ const ensureSunmiConnected = async () => {
 // ======================================================
 
 export const setBluetoothPrinter = async (address) => {
-
   if (!BluetoothPrinter) {
-
     throw new Error(
       "BluetoothPrinter native module is not available"
     );
   }
 
   if (!address) {
+    throw new Error("Bluetooth printer address is required");
+  }
 
+  const hasPermission = await requestBluetoothPermission();
+
+  if (!hasPermission) {
     throw new Error(
-      "Bluetooth printer address is required"
+      "Bluetooth permission denied. Please allow Bluetooth access."
     );
   }
 
-  console.log(
-    "CONNECTING BLUETOOTH PRINTER:",
-    address
-  );
+  console.log("CONNECTING BLUETOOTH PRINTER:", address);
 
-  const result =
-    await BluetoothPrinter.connect(address);
+  const result = await BluetoothPrinter.connect(address);
 
   bluetoothAddress = address;
 
-  console.log(
-    "BLUETOOTH PRINTER CONNECTED:",
-    result
-  );
+  console.log("BLUETOOTH PRINTER CONNECTED:", result);
 
   return {
     success: true,
@@ -148,32 +173,31 @@ export const setBluetoothPrinter = async (address) => {
   };
 };
 
-
 // ======================================================
 // GET BLUETOOTH PRINTERS
 // ======================================================
 
 export const getBluetoothPrinters = async () => {
-
   if (!BluetoothPrinter) {
-
     throw new Error(
       "BluetoothPrinter native module is not available"
     );
   }
 
-  const devices =
-    await BluetoothPrinter.getPairedDevices();
+  const hasPermission = await requestBluetoothPermission();
 
-  console.log(
-    "BLUETOOTH PAIRED DEVICES:",
-    devices
-  );
+  if (!hasPermission) {
+    throw new Error(
+      "Bluetooth permission denied. Please allow Bluetooth access."
+    );
+  }
+
+  const devices = await BluetoothPrinter.getPairedDevices();
+
+  console.log("BLUETOOTH PAIRED DEVICES:", devices);
 
   return devices;
 };
-
-
 // ======================================================
 // ENSURE BLUETOOTH PRINTER CONNECTED
 // ======================================================
@@ -229,10 +253,17 @@ const ensureBluetoothConnected = async () => {
     );
   }
 
-  const result =
-    await BluetoothPrinter.connect(
-      bluetoothAddress
-    );
+const hasPermission = await requestBluetoothPermission();
+
+if (!hasPermission) {
+  throw new Error(
+    "Bluetooth permission denied. Please allow Bluetooth access."
+  );
+}
+
+const result = await BluetoothPrinter.connect(
+  bluetoothAddress
+);
 
   console.log(
     "BLUETOOTH PRINTER READY:",
