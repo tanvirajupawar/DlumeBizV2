@@ -245,16 +245,27 @@ console.log("✅ NAMED PDF:", namedPdfUri);
 
 
 
-    await Share.shareSingle({
-      title: "Customer Receipt",
-      message: "Thank you for shopping with us!",
-   url: namedPdfUri,
-      type: "application/pdf",
-      social: Share.Social.WHATSAPP,
-      whatsAppNumber: `91${customerPhone}`,
-      filename: fileName,
-      failOnCancel: false,
-    });
+const shareUri = `file://${namedPdfUri.replace(/^file:\/\//, "")}`;
+
+console.log("WHATSAPP SHARE DETAILS:", {
+  shareUri,
+  fileName,
+  customerPhone: `91${customerPhone}`,
+});
+
+const shareResult = await Share.shareSingle({
+  title: "Customer Receipt",
+  message: "Thank you for shopping with us!",
+  url: shareUri,
+  type: "application/pdf",
+  social: Share.Social.WHATSAPP,
+  whatsAppNumber: `91${customerPhone}`,
+  filename: fileName,
+  failOnCancel: false,
+  saveToFiles: false,
+});
+
+console.log("WHATSAPP SHARE RESULT:", shareResult);
 
     console.log("STEP 6 - SHARE COMPLETED");
 

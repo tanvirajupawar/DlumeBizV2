@@ -302,6 +302,7 @@ total: grandTotal,
     paymentMode: inv.payment_method || inv.paymentMode || "",
     fulfillmentStatus: "Fulfilled",
 date: invoiceDate,
+sortDate: inv.createdAt || inv.created_at || invoiceDate,
 dateGroup: dateGroupFor(invoiceDate),
 
 transportationDetails:
@@ -821,19 +822,19 @@ function ItemTable({ items, isCalculatorOrder = false }) {
 </View>
 
 <View style={styles.itColType}>
-  <Text style={[styles.itCell, styles.itMuted]}>
-    {item.type || "—"}
-  </Text>
+ <Text style={styles.itCell}>
+  {item.type || "—"}
+</Text>
 </View>
 
 <View style={styles.itColDesc}>
-  <Text style={[styles.itCell, styles.itMuted]}>
+  <Text style={[styles.itCell]}>
     {item.description || "—"}
   </Text>
 </View>
 
 <View style={styles.itColSize}>
-  <Text style={[styles.itCell, styles.itMuted]}>
+  <Text style={[styles.itCell]}>
     {item.size || "—"}
   </Text>
 </View>
@@ -858,7 +859,7 @@ function ItemTable({ items, isCalculatorOrder = false }) {
 </View>
 
 <View style={styles.itColPrice}>
-  <Text style={[styles.itCell, styles.itRight, styles.itMuted]}>
+  <Text style={[styles.itCell, styles.itRight]}>
     ₹{moneyCompact(item.rate)}
   </Text>
 </View>
@@ -1991,13 +1992,13 @@ console.log(
           (Number(ret.total_amount) || 0);
       });
 
-      const mappedOrders = salesData
-        .map((inv) => mapInvoice(inv, returnsBySalesId))
-        .sort(
-          (a, b) =>
-            new Date(b.date || 0).getTime() -
-            new Date(a.date || 0).getTime()
-        );
+const mappedOrders = salesData
+  .map((inv) => mapInvoice(inv, returnsBySalesId))
+  .sort(
+    (a, b) =>
+      new Date(b.sortDate || b.date || 0).getTime() -
+      new Date(a.sortDate || a.date || 0).getTime()
+  );
 
       setOrders(mappedOrders);
       setReturns(mappedReturns);
@@ -2134,11 +2135,11 @@ console.log(
       dateGroup: dateGroupFor(ret.date),
     }));
 
-    return [...orderRecords, ...returnRecords].sort(
-      (a, b) =>
-        new Date(b.date || 0).getTime() -
-        new Date(a.date || 0).getTime()
-    );
+return [...orderRecords, ...returnRecords].sort(
+  (a, b) =>
+    new Date(b.sortDate || b.date || 0).getTime() -
+    new Date(a.sortDate || a.date || 0).getTime()
+);
   }, [orders, returns]);
 
   // Apply the same date and search filters to invoices AND returns.
@@ -2898,7 +2899,12 @@ detailCustomerName: {
 },
 
   detailCustomer: { fontSize: 16, color: colors.textSecondary, marginTop: 5 },
-  detailCompany: { fontSize: 14.5, color: colors.textMuted, marginTop: 2 },
+detailCompany: {
+  fontSize: 14.5,
+  color: "#000000",
+  fontWeight: "600",
+  marginTop: 2,
+},
   detailAmount: { fontSize: 22, fontWeight: "800", color: colors.textPrimary },
   detailDate: { fontSize: 14, color: colors.textMuted, marginTop: 5 },
   statusPillRow: { flexDirection: "row", gap: 20, marginBottom: spacing.lg },
@@ -3726,8 +3732,8 @@ transportationValue: {
 },
 listRowCompany: {
   fontSize: 13,
-  color: colors.textMuted,
-  fontWeight: "500",
+  color: "#000000",
+  fontWeight: "600",
   marginTop: 3,
 },
 

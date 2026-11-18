@@ -4,6 +4,9 @@ import com.facebook.react.bridge.ReadableMap;
 import com.sunmi.peripheral.printer.SunmiPrinterService;
 
 import java.util.Locale;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.TimeZone;
 
 public class ReceiptFormatter {
 
@@ -35,6 +38,7 @@ public class ReceiptFormatter {
         String invoiceNo = getStr(receipt, "invoiceNo");
         String customerName = getStr(receipt, "customerName");
         String invoiceDate = getStr(receipt, "invoiceDate");
+        android.util.Log.d("RECEIPT_TIME", "RAW invoiceDate = " + invoiceDate);
         String paymentMode = getStr(receipt, "paymentMode");
         boolean isGSTUser = receipt.hasKey("isGSTUser") && receipt.getBoolean("isGSTUser");
 
@@ -53,49 +57,103 @@ public class ReceiptFormatter {
         // ITEM gets whatever is left of the real per-line capacity resolved
         // above. Columns always sum to nominalWidth, so the table always
         // reaches the printer's actual full line width with no dead space.
-        int qtyLen = "QTY".length();
-        int rateLen = "RATE".length();
-        int amtLen = "AMOUNT".length();
+      int qtyLen = "QTY".length();
+int rateLen = "RATE".length();
+int amtLen = "AMOUNT".length();
+int sizeLen = "SIZE".length();
+int bagsLen = "B*U".length();
 
-        if (items != null) {
-            for (int i = 0; i < items.size(); i++) {
-                ReadableMap item = items.getMap(i);
-                qtyLen = Math.max(qtyLen, fmt(getDouble(item, "qty")).length());
-                rateLen = Math.max(rateLen, fmt(getDouble(item, "rate")).length());
-                amtLen = Math.max(amtLen, fmt(getDouble(item, "amount")).length());
-            }
-        }
-        // Totals/payment values print in the same AMOUNT column, so they
-        // must be accounted for too (e.g. a 4-figure grand total).
-        amtLen = Math.max(amtLen, fmt(subtotal).length());
-        amtLen = Math.max(amtLen, fmt(grandTotal).length());
-        amtLen = Math.max(amtLen, fmt(amountReceived).length());
-        if (totalDiscount > 0) amtLen = Math.max(amtLen, fmt(totalDiscount).length() + 1); // "-" prefix
-        if (isGSTUser && totalTax > 0) amtLen = Math.max(amtLen, fmt(totalTax).length());
-        if (change > 0) amtLen = Math.max(amtLen, fmt(change).length());
+if (items != null) {
+    for (int i = 0; i < items.size(); i++) {
+        ReadableMap item = items.getMap(i);
 
-        int qtyWeight = qtyLen + 1;   // +1 = guaranteed gap from the previous column
-        int rateWeight = rateLen + 1;
-        int amtWeight = amtLen + 1;
-  int descWeight = 10;
+        qtyLen = Math.max(qtyLen, fmt(getDouble(item, "qty")).length());
+        rateLen = Math.max(rateLen, fmt(getDouble(item, "rate")).length());
+        amtLen = Math.max(amtLen, fmt(getDouble(item, "amount")).length());
 
-int itemWeight =
-        nominalWidth
-        - descWeight
-        - qtyWeight
-        - rateWeight
-        - amtWeight;
+        String size = getStr(item, "size");
+        if (size.isEmpty()) size = getStr(item, "product_size");
+        if (size.isEmpty()) size = getStr(item, "size_name");
+        if (size.isEmpty()) size = getStr(item, "variant_size");
 
+        sizeLen = Math.max(sizeLen, Math.max(1, size.length()));
+
+        double bags = getDouble(item, "bags");
+        if (bags == 0) bags = getDouble(item, "bag_qty");
+
+        double units = getDouble(item, "units_per_bag");
+        if (units == 0) units = getDouble(item, "unitsPerBag");
+
+        String bagsUnit =
+                bags > 0 && units > 0
+                        ? fmt(bags) + "*" + fmt(units)
+                        : "-";
+
+        bagsLen = Math.max(bagsLen, bagsUnit.length());
+    }
+}
+
+amtLen = Math.max(amtLen, fmt(subtotal).length());
+amtLen = Math.max(amtLen, fmt(grandTotal).length());
+amtLen = Math.max(amtLen, fmt(amountReceived).length());
+
+if (totalDiscount > 0)
+    amtLen = Math.max(amtLen, fmt(totalDiscount).length() + 1);
+
+if (isGSTUser && totalTax > 0)
+    amtLen = Math.max(amtLen, fmt(totalTax).length());
+
+if (change > 0)
+    amtLen = Math.max(amtLen, fmt(change).length());
+
+int qtyWeight = qtyLen + 1;
+int rateWeight = rateLen + 1;
+int amtWeight = amtLen + 1;
+int sizeWeight = sizeLen + 1;
+int bagsWeight = bagsLen + 1;
+
+
+int fixedWidth =
+        sizeWeight + bagsWeight + qtyWeight + rateWeight + amtWeight;
+
+// Keep the table within the printer's actual line width.
+// Give ITEM at least 1 character.
+int itemWeight = Math.max(1, nominalWidth - fixedWidth);
+
+// If fixed columns are too wide, reduce them to fit.
+if (itemWeight + fixedWidth > nominalWidth) {
+    int available = Math.max(6, nominalWidth - 6);
+
+    sizeWeight = Math.min(sizeWeight, 5);
+    bagsWeight = Math.min(bagsWeight, 7);
+    qtyWeight = Math.min(qtyWeight, 6);
+    rateWeight = Math.min(rateWeight, 8);
+
+    amtWeight = Math.max(
+            6,
+            available - sizeWeight - bagsWeight
+                    - qtyWeight - rateWeight
+    );
+
+    itemWeight = Math.max(
+            1,
+            nominalWidth - sizeWeight - bagsWeight
+                    - qtyWeight - rateWeight - amtWeight
+    );
+}
 
 int[] tableCols = {
         itemWeight,
-        descWeight,
+        sizeWeight,
+        bagsWeight,
         qtyWeight,
         rateWeight,
         amtWeight
 };
 
+
 int[] tableAlign = {
+        ALIGN_LEFT,
         ALIGN_LEFT,
         ALIGN_LEFT,
         ALIGN_RIGHT,
@@ -103,13 +161,11 @@ int[] tableAlign = {
         ALIGN_RIGHT
 };
 
-       int labelWeight =
-        itemWeight +
-        descWeight +
-        qtyWeight +
-        rateWeight;
-        int[] totalsCols = {labelWeight, amtWeight};
-        int[] totalsAlign = {ALIGN_LEFT, ALIGN_RIGHT};
+int labelWeight =
+        itemWeight + sizeWeight + bagsWeight + qtyWeight + rateWeight;
+
+int[] totalsCols = {labelWeight, amtWeight};
+int[] totalsAlign = {ALIGN_LEFT, ALIGN_RIGHT};
 
         // ---------- Header: "TAX INVOICE" first, then company name ----------
         printer.setAlignment(1, null); // center
@@ -132,74 +188,83 @@ int[] tableAlign = {
         // Every row is printed through printColumnsString with the SAME
         // column-width array, so header, items, and totals all share one
         // true grid at the printer's real full line width.
+
+// ---------- Items table ----------
 printer.printColumnsString(
-        new String[]{"ITEM", "DESC", "QTY", "RATE", "AMOUNT"},
+        new String[]{"ITEM", "SIZE", "B*U", "QTY", "RATE", "AMOUNT"},
         tableCols, tableAlign, null);
-        printDivider(printer, tableCols);
 
-        if (items != null) {
-            for (int i = 0; i < items.size(); i++) {
-                ReadableMap item = items.getMap(i);
-double qty = getDouble(item, "qty");
-double rate = getDouble(item, "rate");
-double amount = getDouble(item, "amount");
+printDivider(printer, tableCols);
 
-boolean isCalculatorItem =
-        item.hasKey("isCalculatorItem")
-        && !item.isNull("isCalculatorItem")
-        && item.getBoolean("isCalculatorItem");
+if (items != null) {
+    for (int i = 0; i < items.size(); i++) {
+        ReadableMap item = items.getMap(i);
 
-String name;
+        double qty = getDouble(item, "qty");
+        double rate = getDouble(item, "rate");
+        double amount = getDouble(item, "amount");
 
-if (isCalculatorItem) {
+        boolean isCalculatorItem =
+                item.hasKey("isCalculatorItem")
+                && !item.isNull("isCalculatorItem")
+                && item.getBoolean("isCalculatorItem");
 
-    // Calculator item — keep existing format
-    name =
-            fmt(qty) +
-            "*" +
-            fmt(rate) +
-            "rs";
+        String name;
+        String size = "-";
+        String bagsUnit = "-";
 
-} else {
+        if (isCalculatorItem) {
+            // Keep existing calculator item format
+            name = fmt(qty) + "*" + fmt(rate) + "rs";
+        } else {
+            name = getStr(item, "product_name");
+            if (name.isEmpty()) name = getStr(item, "name");
+            if (name.isEmpty()) name = getStr(item, "product");
+            if (name.isEmpty()) name = "Item";
 
-    // Normal product — print actual product name
-    name = getStr(item, "product_name");
+            // Append product type beside the name
+            String type = getStr(item, "type");
+            if (type.isEmpty()) type = getStr(item, "product_type");
 
-    if (name.isEmpty()) {
-        name = getStr(item, "name");
-    }
+            if (!type.isEmpty()) {
+                name += " (" + type + ")";
+            }
 
-    if (name.isEmpty()) {
-        name = getStr(item, "product");
-    }
+            // Product size
+            size = getStr(item, "size");
+            if (size.isEmpty()) size = getStr(item, "product_size");
+            if (size.isEmpty()) size = getStr(item, "size_name");
+            if (size.isEmpty()) size = getStr(item, "variant_size");
+            if (size.isEmpty()) size = "-";
 
-    if (name.isEmpty()) {
-        name = "Item";
-    }
-}
+            // Bags × units per bag
+            double bags = getDouble(item, "bags");
+            if (bags == 0) bags = getDouble(item, "bag_qty");
 
-String description = getStr(item, "description");
+            double units = getDouble(item, "units_per_bag");
+            if (units == 0) units = getDouble(item, "unitsPerBag");
 
-if (description.isEmpty()) {
-    description = getStr(item, "desc");
-}
-
-                // printColumnsString wraps overlong cell text onto the next
-                // line by itself, cleanly, without us pre-splitting names.
-               printer.printColumnsString(
-        new String[]{
-                name,
-                description,
-                fmt(qty),
-                fmt(rate),
-                fmt(amount)
-        },
-        tableCols,
-        tableAlign,
-        null
-);
+            if (bags > 0 && units > 0) {
+                bagsUnit = fmt(bags) + "*" + fmt(units);
             }
         }
+
+        printer.printColumnsString(
+                new String[]{
+                        name,
+                        size,
+                        bagsUnit,
+                        fmt(qty),
+                        fmt(rate),
+                        fmt(amount)
+                },
+                tableCols,
+                tableAlign,
+                null
+        );
+    }
+}
+
 
         printDivider(printer, tableCols);
 
@@ -312,8 +377,33 @@ if (description.isEmpty()) {
         return sb.toString();
     }
 
-    private static String formatDate(String isoDate) {
-        if (isoDate == null || isoDate.length() < 10) return isoDate;
-        return isoDate.substring(0, 10) + " " + (isoDate.length() >= 16 ? isoDate.substring(11, 16) : "");
+ 
+
+private static String formatDate(String isoDate) {
+    if (isoDate == null || isoDate.isEmpty()) return "";
+
+    try {
+        String normalized = isoDate.trim();
+
+        // Handle timestamps without milliseconds
+        if (normalized.matches(".*T\\d{2}:\\d{2}:\\d{2}Z$")) {
+            normalized = normalized.replace("Z", ".000Z");
+        }
+
+        java.time.Instant instant =
+                java.time.Instant.parse(normalized);
+
+        java.time.ZonedDateTime ist =
+                instant.atZone(java.time.ZoneId.of("Asia/Kolkata"));
+
+        return java.time.format.DateTimeFormatter
+                .ofPattern("dd-MM-yyyy hh:mm a", Locale.US)
+                .format(ist);
+
+    } catch (Exception e) {
+        return isoDate;
     }
+}
+
+
 }

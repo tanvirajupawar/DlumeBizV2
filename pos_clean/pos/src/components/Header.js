@@ -299,7 +299,7 @@ const closeSearch = () => {
     testID="header-customer-button"
   >
     <Text style={styles.customerButtonText}>
-      Add Customer
+      Select Customer
     </Text>
     {customerSelected && (
       <Ionicons name="checkmark-circle" size={16} color="#1D4ED8" />

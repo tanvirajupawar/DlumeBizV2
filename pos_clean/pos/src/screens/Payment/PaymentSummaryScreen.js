@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -101,58 +101,46 @@ const isEditMode = !!editInvoiceId;
     setDiscountInput(value);
   };
 
-  // Load the saved customer's account summary.
-  const firstLoad = useRef(true);
+// Use the outstanding already available on the selected customer.
+useEffect(() => {
+  if (isWalkIn) {
+    setSummary(null);
+    setLoading(false);
+    setRefreshing(false);
+    setLoadError(false);
+    return;
+  }
 
-  useEffect(() => {
-    if (isWalkIn) return;
+  // New invoice: use the exact outstanding shown in Customer List.
+  if (!isEditMode) {
+    const previous = round2(customer?.outstanding ?? 0);
 
-    let cancelled = false;
+    setSummary({
+      previous_outstanding: previous,
+      total_payable: round2(previous + discountedGrandTotal),
+    });
 
-    const timer = setTimeout(
-      async () => {
-        try {
-          setRefreshing(true);
-        const response = await getCreditSummary(
-  customerId,
+    setLoading(false);
+    setRefreshing(false);
+    setLoadError(false);
+    setCustomAmount(null);
+    return;
+  }
+}, [
+  isWalkIn,
+  isEditMode,
+  customer?.outstanding,
   discountedGrandTotal,
-  isEditMode ? editInvoiceId : null
-);
-          if (cancelled) return;
-          setSummary(response.data);
-          setLoadError(false);
-          setCustomAmount(null);
-        } catch (error) {
-          console.log(
-            "❌ CREDIT SUMMARY ERROR:",
-            error?.response?.data || error.message
-          );
-          if (!cancelled) setLoadError(true);
-        } finally {
-          if (!cancelled) {
-            setRefreshing(false);
-            setLoading(false);
-            firstLoad.current = false;
-          }
-        }
-      },
-      firstLoad.current ? 0 : 450
-    );
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [customerId, discountedGrandTotal, isWalkIn]);
+]);
 
   // Payment calculations
-  const previousOutstanding = isWalkIn
-    ? 0
-    : Number(summary?.previous_outstanding || 0);
+const previousOutstanding = isWalkIn
+  ? 0
+  : round2(summary?.previous_outstanding ?? customer?.outstanding ?? 0);
 
-  const totalPayable = isWalkIn
-    ? discountedGrandTotal
-    : Number(summary?.total_payable || 0);
+const totalPayable = isWalkIn
+  ? discountedGrandTotal
+  : round2(summary?.total_payable ?? (previousOutstanding + discountedGrandTotal));
 
   const currentInvoiceAmount = discountedGrandTotal;
 
@@ -791,21 +779,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  creditButton: {
-    flex: 1,
-    height: 56,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#242E43",
-    backgroundColor: "#FFFFFF",
-  },
-  creditButtonText: {
-    color: "#242E43",
-    fontSize: 17,
-    fontWeight: "700",
-  },
+creditButton: {
+  flex: 1,
+  height: 56,
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 10,
+  borderWidth: 1,
+  borderColor: "#DC2626",
+  backgroundColor: "#DC2626",
+},
+
+creditButtonText: {
+  color: "#FFFFFF",
+  fontSize: 17,
+  fontWeight: "700",
+},
   payButton: {
     flex: 1.6,
     height: 56,

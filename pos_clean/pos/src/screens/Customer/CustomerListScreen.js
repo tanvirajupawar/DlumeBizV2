@@ -151,33 +151,45 @@ if (entry.type === "divider") {
           pressed && styles.trPressed,
         ]}
       >
-        <Text
-          style={[styles.td, styles.colSr, inactive && styles.mutedText]}
-          numberOfLines={1}
-        >
-          {entry.sr}
-        </Text>
+   <Text
+  style={[styles.td, styles.colSr, inactive && styles.mutedText]}
+  numberOfLines={1}
+>
+  {entry.sr}
+</Text>
 
-        <View style={[styles.colName, styles.nameCell]}>
-          <Text
-            style={[styles.tdName, inactive && styles.mutedText, styles.nameText]}
-            numberOfLines={1}
-          >
-            {getName(item)}
-          </Text>
-          {inactive && (
-            <View style={styles.inactivePill}>
-              <Text style={styles.inactivePillText}>Inactive</Text>
-            </View>
-          )}
-        </View>
-
-       <Text
-  style={[styles.td, styles.colCompany, inactive && styles.mutedText]}
+<Text
+  style={[
+    styles.td,
+    styles.colCompany,
+    inactive && styles.mutedText,
+    !inactive && styles.companyText,
+  ]}
   numberOfLines={1}
 >
   {getCompany(item) || "—"}
 </Text>
+
+<View style={[styles.colName, styles.nameCell]}>
+  <Text
+    style={[
+      styles.tdName,
+      inactive && styles.mutedText,
+      styles.nameText,
+    ]}
+    numberOfLines={1}
+  >
+    {getName(item)}
+  </Text>
+
+  {inactive && (
+    <View style={styles.inactivePill}>
+      <Text style={styles.inactivePillText}>Inactive</Text>
+    </View>
+  )}
+</View>
+
+      
 
 <Text
   style={[styles.td, styles.colPhone, inactive && styles.mutedText]}
@@ -257,9 +269,9 @@ if (entry.type === "divider") {
         <View style={styles.table}>
           {/* Table Header */}
           <View style={[styles.tr, styles.thRow]}>
-            <Text style={[styles.th, styles.colSr]}>Sr</Text>
-            <Text style={[styles.th, styles.colName]}>Name</Text>
-            <Text style={[styles.th, styles.colCompany]}>Company</Text>
+         <Text style={[styles.th, styles.colSr]}>Sr</Text>
+<Text style={[styles.th, styles.colCompany]}>Company</Text>
+<Text style={[styles.th, styles.colName]}>Name</Text>
 <Text style={[styles.th, styles.colPhone]}>Phone</Text>
             <Text style={[styles.th, styles.colOutstanding]}>
               Outstanding
@@ -667,4 +679,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.textPrimary,
   },
+  companyText: {
+  color: "#2563EB",
+  fontSize: 16,
+  fontWeight: "700",
+},
 });
