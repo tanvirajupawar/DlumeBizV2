@@ -253,17 +253,16 @@ console.log("WHATSAPP SHARE DETAILS:", {
   customerPhone: `91${customerPhone}`,
 });
 
-const shareResult = await Share.shareSingle({
+const shareResult = await Share.open({
   title: "Customer Receipt",
   message: "Thank you for shopping with us!",
-  url: shareUri,
+  url: namedPdfUri,
   type: "application/pdf",
-  social: Share.Social.WHATSAPP,
-  whatsAppNumber: `91${customerPhone}`,
   filename: fileName,
   failOnCancel: false,
-  saveToFiles: false,
 });
+
+console.log("GENERAL SHARE RESULT:", shareResult);
 
 console.log("WHATSAPP SHARE RESULT:", shareResult);
 

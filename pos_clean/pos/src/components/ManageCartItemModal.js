@@ -38,19 +38,25 @@ import { COLORS, SPACING, RADIUS } from "./Colors";
  */
 const MAX_CONTENT_WIDTH = 720;
 
-export default function ManageCartItemModal({ visible, item, onClose, onApply }) {
- const [bags, setBags] = useState("0");
+export default function ManageCartItemModal({
+  visible,
+  item,
+  onClose,
+  onApply,
+  isCalculatorMode = false,
+}) {
+const [bags, setBags] = useState("0");
 const [units, setUnits] = useState("0");
-  const [price, setPrice] = useState("0");
-  const [description, setDescription] = useState("");
-
+const [qty, setQty] = useState("1");
+const [price, setPrice] = useState("0");
+const [description, setDescription] = useState("");
 useEffect(() => {
   if (!visible || !item) return;
-
 setBags(String(item.bags ?? 0));
 setUnits(String(item.units_per_bag ?? 0));
-  setPrice(String(item.price ?? 0));
-  setDescription(item.description ?? item.note ?? "");
+setQty(String(item.qty ?? 1));
+setPrice(String(item.price ?? 0));
+setDescription(item.description ?? item.note ?? "");
 }, [visible, item?.id]);
 
   if (!item) return null;
@@ -63,6 +69,17 @@ const stepValue = (setter, delta) => {
 };
 
 const handleApply = () => {
+  if (isCalculatorMode) {
+    onApply?.({
+      qty: parseFloat(qty) || 0,
+      bags: null,
+      units: null,
+      price: parseFloat(price) || 0,
+      description,
+    });
+    return;
+  }
+
   const updatedBags = parseFloat(bags) || 0;
   const updatedUnits = parseFloat(units) || 0;
 
@@ -74,7 +91,6 @@ const handleApply = () => {
     description,
   });
 };
-
   const initial = item.name?.trim()?.charAt(0)?.toUpperCase() || "?";
 
   return (
@@ -115,70 +131,101 @@ const handleApply = () => {
 
             <View style={styles.bodyWrap}>
               <View style={styles.centerCol}>
-              <View style={styles.bagsUnitsRow}>
-  {/* BAGS */}
+           
+{isCalculatorMode ? (
   <View style={styles.bagUnitColumn}>
-    <Text style={styles.label}>Bags</Text>
+    <Text style={styles.label}>Quantity</Text>
 
     <View style={styles.counterRow}>
       <Pressable
         style={styles.counterBtn}
-        onPress={() => stepValue(setBags, -1)}
+        onPress={() => stepValue(setQty, -1)}
       >
         <Text style={styles.counterBtnText}>−</Text>
       </Pressable>
 
       <TextInput
         style={styles.counterInput}
-        value={bags}
+        value={qty}
         onChangeText={(text) =>
-          setBags(text.replace(/[^0-9.]/g, ""))
+          setQty(text.replace(/[^0-9.]/g, ""))
         }
         keyboardType="numeric"
       />
 
       <Pressable
         style={styles.counterBtn}
-        onPress={() => stepValue(setBags, 1)}
+        onPress={() => stepValue(setQty, 1)}
       >
         <Text style={styles.counterBtnText}>+</Text>
       </Pressable>
     </View>
   </View>
+) : (
+  <View style={styles.bagsUnitsRow}>
+    {/* BAGS */}
+    <View style={styles.bagUnitColumn}>
+      <Text style={styles.label}>Bags</Text>
+      <View style={styles.counterRow}>
+        <Pressable
+          style={styles.counterBtn}
+          onPress={() => stepValue(setBags, -1)}
+        >
+          <Text style={styles.counterBtnText}>−</Text>
+        </Pressable>
 
-  {/* UNITS */}
-  <View style={styles.bagUnitColumn}>
-    <Text style={styles.label}>Units</Text>
+        <TextInput
+          style={styles.counterInput}
+          value={bags}
+          onChangeText={(text) =>
+            setBags(text.replace(/[^0-9.]/g, ""))
+          }
+          keyboardType="numeric"
+        />
 
-    <View style={styles.counterRow}>
-      <Pressable
-        style={styles.counterBtn}
-        onPress={() => stepValue(setUnits, -1)}
-      >
-        <Text style={styles.counterBtnText}>−</Text>
-      </Pressable>
+        <Pressable
+          style={styles.counterBtn}
+          onPress={() => stepValue(setBags, 1)}
+        >
+          <Text style={styles.counterBtnText}>+</Text>
+        </Pressable>
+      </View>
+    </View>
 
-      <TextInput
-        style={styles.counterInput}
-        value={units}
-        onChangeText={(text) =>
-          setUnits(text.replace(/[^0-9.]/g, ""))
-        }
-        keyboardType="numeric"
-      />
+    {/* UNITS */}
+    <View style={styles.bagUnitColumn}>
+      <Text style={styles.label}>Units</Text>
+      <View style={styles.counterRow}>
+        <Pressable
+          style={styles.counterBtn}
+          onPress={() => stepValue(setUnits, -1)}
+        >
+          <Text style={styles.counterBtnText}>−</Text>
+        </Pressable>
 
-      <Pressable
-        style={styles.counterBtn}
-        onPress={() => stepValue(setUnits, 1)}
-      >
-        <Text style={styles.counterBtnText}>+</Text>
-      </Pressable>
+        <TextInput
+          style={styles.counterInput}
+          value={units}
+          onChangeText={(text) =>
+            setUnits(text.replace(/[^0-9.]/g, ""))
+          }
+          keyboardType="numeric"
+        />
+
+        <Pressable
+          style={styles.counterBtn}
+          onPress={() => stepValue(setUnits, 1)}
+        >
+          <Text style={styles.counterBtnText}>+</Text>
+        </Pressable>
+      </View>
     </View>
   </View>
-</View>
-                <Text style={[styles.label, { marginTop: SPACING.xl }]}>
-                  Price (₹)
-                </Text>
+)}
+
+            <Text style={[styles.label, { marginTop: SPACING.xl }]}>
+  {isCalculatorMode ? "Rate (₹)" : "Price (₹)"}
+</Text>
               <TextInput
   style={styles.underlineInput}
   value={price}

@@ -623,7 +623,7 @@ sunmiPrinterService.printText(
 sunmiPrinterService.printText(
         twoColumn(
                 "TOTAL SALES:",
-                formatMoneyNoDecimal(totalSales) + " Rs",
+             formatMoneyNoDecimal(totalSales) + " Rs",
                 TOTALS_LINE_WIDTH
         ),
         null
@@ -671,6 +671,601 @@ sunmiPrinterService.setFontSize(
         );
     }
 }
+
+
+
+
+    // ==================================================
+    // DAILY PAYMENT SUMMARY - 80MM
+    // ==================================================
+
+    @ReactMethod
+    public void printDailyPaymentSummary(
+            ReadableMap summary,
+            Promise promise
+    ) {
+
+        if (!checkPrinter(promise)) {
+            return;
+        }
+
+        try {
+
+            Log.d(
+                    "SunmiPrinter",
+                    "========== DAILY PAYMENT SUMMARY =========="
+            );
+
+            sunmiPrinterService.printerInit(null);
+
+            final int WIDTH = 48;
+
+            // ------------------------------------------
+            // DATE
+            // ------------------------------------------
+
+            String date = summary.hasKey("date")
+                    && !summary.isNull("date")
+                    ? summary.getString("date")
+                    : "";
+
+            // ------------------------------------------
+            // HEADER
+            // ------------------------------------------
+
+            sunmiPrinterService.setAlignment(1, null);
+            sunmiPrinterService.setFontSize(34, null);
+
+            sunmiPrinterService.printText(
+                    "DAILY PAYMENT SUMMARY\n",
+                    null
+            );
+
+            sunmiPrinterService.setFontSize(22, null);
+
+            sunmiPrinterService.printText(
+                    date + "\n",
+                    null
+            );
+
+            sunmiPrinterService.setFontSize(24, null);
+            sunmiPrinterService.setAlignment(0, null);
+
+            sunmiPrinterService.printText(
+                    repeat('-', WIDTH) + "\n",
+                    null
+            );
+
+            // ------------------------------------------
+            // PAYMENT TABLE
+            // ------------------------------------------
+
+            int[] cols = {24, 10, 14};
+            int[] aligns = {0, 0, 2};
+
+            sunmiPrinterService.printColumnsString(
+                    new String[]{
+                            "CUSTOMER",
+                            "METHOD",
+                            "AMOUNT"
+                    },
+                    cols,
+                    aligns,
+                    null
+            );
+
+            sunmiPrinterService.printText(
+                    repeat('-', WIDTH) + "\n",
+                    null
+            );
+
+            // ------------------------------------------
+            // PAYMENT ITEMS
+            // ------------------------------------------
+
+            ReadableArray items = summary.hasKey("items")
+                    && !summary.isNull("items")
+                    ? summary.getArray("items")
+                    : null;
+
+            if (items != null) {
+
+                for (int i = 0; i < items.size(); i++) {
+
+                    ReadableMap item = items.getMap(i);
+
+                    if (item == null) {
+                        continue;
+                    }
+
+                    String customerName =
+                            item.hasKey("customerName")
+                                    && !item.isNull("customerName")
+                                    ? item.getString("customerName")
+                                    : "Customer";
+
+                    String method =
+                            item.hasKey("methodLabel")
+                                    && !item.isNull("methodLabel")
+                                    ? item.getString("methodLabel")
+                                    : "Other";
+
+                    double amount =
+                            item.hasKey("amount")
+                                    && !item.isNull("amount")
+                                    ? item.getDouble("amount")
+                                    : 0;
+
+                    String invoiceNo =
+                            item.hasKey("invoiceNo")
+                                    && !item.isNull("invoiceNo")
+                                    ? item.getString("invoiceNo")
+                                    : "";
+
+                    if (customerName.length() > 24) {
+                        customerName = customerName.substring(0, 24);
+                    }
+
+                    if (method.length() > 10) {
+                        method = method.substring(0, 10);
+                    }
+
+                    sunmiPrinterService.printColumnsString(
+                            new String[]{
+                                    customerName,
+                                    method,
+                                    formatMoneyNoDecimal(amount)
+                            },
+                            cols,
+                            aligns,
+                            null
+                    );
+
+                    if (!invoiceNo.isEmpty()) {
+                        sunmiPrinterService.printText(
+                                "  Invoice: " + invoiceNo + "\n",
+                                null
+                        );
+                    }
+                }
+            }
+
+            // ------------------------------------------
+            // TOTALS
+            // ------------------------------------------
+
+            sunmiPrinterService.printText(
+                    repeat('-', WIDTH) + "\n",
+                    null
+            );
+
+            double cash = summary.hasKey("cash")
+                    ? summary.getDouble("cash")
+                    : 0;
+
+            double upi = summary.hasKey("upi")
+                    ? summary.getDouble("upi")
+                    : 0;
+
+            double card = summary.hasKey("card")
+                    ? summary.getDouble("card")
+                    : 0;
+
+            double other = summary.hasKey("other")
+                    ? summary.getDouble("other")
+                    : 0;
+
+            double totalReceived = summary.hasKey("totalReceived")
+                    ? summary.getDouble("totalReceived")
+                    : 0;
+
+            sunmiPrinterService.setFontSize(26, null);
+
+            sunmiPrinterService.printText(
+                    twoColumn(
+                            "CASH:",
+                            formatMoneyNoDecimal(cash),
+                            42
+                    ),
+                    null
+            );
+
+            sunmiPrinterService.printText(
+                    twoColumn(
+                            "UPI:",
+                            formatMoneyNoDecimal(upi),
+                            42
+                    ),
+                    null
+            );
+
+            sunmiPrinterService.printText(
+                    twoColumn(
+                            "CARD:",
+                            formatMoneyNoDecimal(card),
+                            42
+                    ),
+                    null
+            );
+
+            if (other != 0) {
+                sunmiPrinterService.printText(
+                        twoColumn(
+                                "OTHER:",
+                                formatMoneyNoDecimal(other),
+                                42
+                        ),
+                        null
+                );
+            }
+
+            sunmiPrinterService.printText(
+                    repeat('-', WIDTH) + "\n",
+                    null
+            );
+
+            sunmiPrinterService.setFontSize(30, null);
+
+            sunmiPrinterService.printText(
+                    twoColumn(
+                            "TOTAL RECEIVED:",
+                            formatMoneyNoDecimal(totalReceived),
+                            38
+                    ),
+                    null
+            );
+
+            // ------------------------------------------
+            // END
+            // ------------------------------------------
+
+            sunmiPrinterService.setFontSize(24, null);
+
+            sunmiPrinterService.printText(
+                    "\n\n\n",
+                    null
+            );
+
+            sunmiPrinterService.lineWrap(4, null);
+
+            Log.d(
+                    "SunmiPrinter",
+                    "DAILY PAYMENT SUMMARY PRINTED"
+            );
+
+            promise.resolve("Daily payment summary printed");
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "SunmiPrinter",
+                    "Daily payment summary print failed",
+                    e
+            );
+
+            promise.reject(
+                    "DAILY_PAYMENT_SUMMARY_PRINT_ERROR",
+                    e.getMessage()
+            );
+        }
+    }
+
+
+// ==================================================
+// CUSTOMER LEDGER - CALCULATOR MODE - 80MM
+// ==================================================
+
+@ReactMethod
+public void printCustomerLedger(
+        ReadableMap ledger,
+        Promise promise
+) {
+
+    if (!checkPrinter(promise)) {
+        return;
+    }
+
+    try {
+        Log.d("SunmiPrinter", "========== CUSTOMER LEDGER PRINT ==========");
+
+        sunmiPrinterService.printerInit(null);
+
+        final int WIDTH = 48;
+
+        // ------------------------------------------
+        // CUSTOMER DETAILS
+        // ------------------------------------------
+
+        ReadableMap customer = ledger.hasKey("customer")
+                && !ledger.isNull("customer")
+                ? ledger.getMap("customer")
+                : null;
+
+        String customerName = "Customer";
+        String company = "";
+        String phone = "";
+
+        if (customer != null) {
+            if (customer.hasKey("name") && !customer.isNull("name")) {
+                customerName = customer.getString("name");
+            }
+
+            if (customer.hasKey("company") && !customer.isNull("company")) {
+                company = customer.getString("company");
+            }
+
+            if (customer.hasKey("phone") && !customer.isNull("phone")) {
+                phone = customer.getString("phone");
+            }
+        }
+
+        String period = ledger.hasKey("period")
+                && !ledger.isNull("period")
+                ? ledger.getString("period")
+                : "All dates";
+
+        sunmiPrinterService.setAlignment(1, null);
+        sunmiPrinterService.setFontSize(30, null);
+        sunmiPrinterService.printText("CUSTOMER LEDGER\n", null);
+
+        sunmiPrinterService.setFontSize(24, null);
+        sunmiPrinterService.printText(customerName + "\n", null);
+
+        if (!company.isEmpty()) {
+            sunmiPrinterService.printText(company + "\n", null);
+        }
+
+        if (!phone.isEmpty()) {
+            sunmiPrinterService.printText(phone + "\n", null);
+        }
+
+        sunmiPrinterService.printText(period + "\n", null);
+
+        sunmiPrinterService.setAlignment(0, null);
+        sunmiPrinterService.printText(
+                repeat('-', WIDTH) + "\n",
+                null
+        );
+
+        // ------------------------------------------
+        // OPENING BALANCE
+        // ------------------------------------------
+
+        double openingBalance = ledger.hasKey("openingBalance")
+                ? ledger.getDouble("openingBalance")
+                : 0;
+
+        sunmiPrinterService.printText(
+                twoColumn(
+                        "OPENING BALANCE:",
+                        formatMoneyNoDecimal(openingBalance),
+                        WIDTH
+                ),
+                null
+        );
+
+        sunmiPrinterService.printText(
+                repeat('-', WIDTH) + "\n",
+                null
+        );
+
+        // ------------------------------------------
+        // TRANSACTION HEADER
+        // DATE | QTY X RATE | AMOUNT
+        // ------------------------------------------
+// Consistent 48-character layout for 80mm paper
+// DATE = 12 | QTY X RATE = 22 | AMOUNT = 14
+
+int[] cols = {12, 22, 14};
+
+int[] aligns = {
+        0, 
+        0,  
+        2  
+};
+
+        sunmiPrinterService.printColumnsString(
+                new String[]{"DATE", "QTY X RATE", "AMOUNT"},
+                cols,
+                aligns,
+                null
+        );
+
+        sunmiPrinterService.printText(
+                repeat('-', WIDTH) + "\n",
+                null
+        );
+
+        // ------------------------------------------
+        // TRANSACTIONS
+        // ------------------------------------------
+
+        ReadableArray rows = ledger.hasKey("rows")
+                && !ledger.isNull("rows")
+                ? ledger.getArray("rows")
+                : null;
+
+        if (rows != null) {
+
+            for (int i = 0; i < rows.size(); i++) {
+
+                ReadableMap row = rows.getMap(i);
+
+                if (row == null) continue;
+
+                String date = row.hasKey("date") && !row.isNull("date")
+                        ? row.getString("date")
+                        : "";
+
+                String kind = row.hasKey("kind") && !row.isNull("kind")
+                        ? row.getString("kind")
+                        : "";
+
+                String title = row.hasKey("title") && !row.isNull("title")
+                        ? row.getString("title")
+                        : "";
+
+                String note = row.hasKey("note") && !row.isNull("note")
+                        ? row.getString("note")
+                        : "";
+
+                double amount = row.hasKey("amount")
+                        ? row.getDouble("amount")
+                        : 0;
+
+                // INVOICE: print calculator quantity x rate lines.
+                if ("invoice".equalsIgnoreCase(kind)) {
+
+                    ReadableArray lines = row.hasKey("lines")
+                            && !row.isNull("lines")
+                            ? row.getArray("lines")
+                            : null;
+
+                    if (lines != null) {
+
+                        for (int j = 0; j < lines.size(); j++) {
+
+                            ReadableMap line = lines.getMap(j);
+
+                            if (line == null) continue;
+
+                            double qty = line.hasKey("qty")
+                                    ? line.getDouble("qty")
+                                    : 0;
+
+                            double rate = line.hasKey("rate")
+                                    ? line.getDouble("rate")
+                                    : 0;
+
+                            double lineAmount = line.hasKey("amount")
+                                    ? line.getDouble("amount")
+                                    : qty * rate;
+
+                            sunmiPrinterService.printColumnsString(
+                                    new String[]{
+                                            date,
+                                            formatQty(qty) + " X " +
+                                                    formatMoneyNoDecimal(rate),
+                                            formatMoneyNoDecimal(lineAmount)
+                                    },
+                                    cols,
+                                    aligns,
+                                    null
+                            );
+
+                            date = "";
+                        }
+                    }
+
+                } else {
+
+                    // PAYMENT / RETURN
+                    String transactionName =
+                            "payment".equalsIgnoreCase(kind)
+                                    ? "PAYMENT"
+                                    : "return".equalsIgnoreCase(kind)
+                                    ? "RETURN"
+                                    : title;
+
+                    String detail = transactionName;
+
+                    if (!note.isEmpty()) {
+                        detail += " " + note;
+                    }
+
+                    if (detail.length() > 26) {
+                        detail = detail.substring(0, 26);
+                    }
+
+                    sunmiPrinterService.printColumnsString(
+                            new String[]{
+                                    date,
+                                    detail,
+                                    formatMoneyNoDecimal(amount)
+                            },
+                            cols,
+                            aligns,
+                            null
+                    );
+                }
+            }
+        }
+
+        // ------------------------------------------
+        // TOTALS
+        // ------------------------------------------
+
+        sunmiPrinterService.printText(
+                repeat('-', WIDTH) + "\n",
+                null
+        );
+
+        double totalInvoiced = ledger.hasKey("totalInvoiced")
+                ? ledger.getDouble("totalInvoiced")
+                : 0;
+
+        double totalReceived = ledger.hasKey("totalReceived")
+                ? ledger.getDouble("totalReceived")
+                : 0;
+
+        double outstanding = ledger.hasKey("outstanding")
+                ? ledger.getDouble("outstanding")
+                : 0;
+
+        sunmiPrinterService.setFontSize(26, null);
+
+        sunmiPrinterService.printText(
+                twoColumn(
+                        "TOTAL INVOICED:",
+                        formatMoneyNoDecimal(totalInvoiced) ,
+                        42
+                ),
+                null
+        );
+
+        sunmiPrinterService.printText(
+                twoColumn(
+                        "TOTAL RECEIVED:",
+                        formatMoneyNoDecimal(totalReceived) ,
+                        42
+                ),
+                null
+        );
+
+        sunmiPrinterService.setFontSize(30, null);
+
+        sunmiPrinterService.printText(
+                twoColumn(
+                        "OUTSTANDING:",
+                        formatMoneyNoDecimal(outstanding) ,
+                        38
+                ),
+                null
+        );
+
+        sunmiPrinterService.setFontSize(24, null);
+        sunmiPrinterService.printText("\n\n\n", null);
+        sunmiPrinterService.lineWrap(4, null);
+
+        Log.d("SunmiPrinter", "CUSTOMER LEDGER PRINTED");
+
+        promise.resolve("Customer ledger printed");
+
+    } catch (Exception e) {
+
+        Log.e(
+                "SunmiPrinter",
+                "Customer ledger print failed",
+                e
+        );
+
+        promise.reject(
+                "CUSTOMER_LEDGER_PRINT_ERROR",
+                e.getMessage()
+        );
+    }
+}
+
 
     // ==================================================
     // CHECK LABEL MODE

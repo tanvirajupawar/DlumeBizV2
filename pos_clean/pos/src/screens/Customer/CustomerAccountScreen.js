@@ -31,6 +31,8 @@ import {
 const SUMMARY_PANEL_WIDTH = 380;
 const DANGER = "#DC2626";
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// Global screen font size increase: 15%
+const fs = (size) => Math.round(size * 1.15);
 
 const money = (v) =>
   "\u20B9" +
@@ -2110,12 +2112,12 @@ const calStyles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  title: { fontSize: 15.5, fontWeight: "700", color: COLORS.textPrimary },
+  title: { fontSize: fs(15.5), fontWeight: "700", color: COLORS.textPrimary },
   row: { flexDirection: "row" },
   weekday: {
     flex: 1,
     textAlign: "center",
-    fontSize: 12,
+    fontSize: fs(12),
     fontWeight: "700",
     color: COLORS.textMuted,
     paddingVertical: 6,
@@ -2129,9 +2131,9 @@ const calStyles = StyleSheet.create({
     justifyContent: "center",
   },
   daySelected: { backgroundColor: COLORS.primary },
-  dayText: { fontSize: 14, color: COLORS.textPrimary },
+  dayText: { fontSize: fs(14), color: COLORS.textPrimary },
   todayBtn: { marginTop: 8, alignSelf: "center", paddingHorizontal: 16, paddingVertical: 8 },
-  todayBtnText: { fontSize: 13.5, fontWeight: "700", color: COLORS.primary },
+  todayBtnText: { fontSize: fs(13.5), fontWeight: "700", color: COLORS.primary },
 });
 
 const styles = StyleSheet.create({
@@ -2139,17 +2141,17 @@ const styles = StyleSheet.create({
 
   // ── Header pieces ──
   hdrCustomer: { justifyContent: "center", minWidth: 0 },
-  hdrName: { color: COLORS.textOnDark, fontSize: 17, fontWeight: "700" },
-  hdrCompany: { fontSize: 13.5, fontWeight: "500", color: COLORS.textOnDarkDim },
-  hdrDetails: { color: COLORS.textOnDarkDim, fontSize: 12, marginTop: 2 },
+  hdrName: { color: COLORS.textOnDark, fontSize: fs(17), fontWeight: "700" },
+  hdrCompany: { fontSize: fs(13.5), fontWeight: "500", color: COLORS.textOnDarkDim },
+  hdrDetails: { color: COLORS.textOnDarkDim, fontSize: fs(12), marginTop: 2 },
   hdrOutstanding: { alignItems: "flex-start" },
   hdrOutLabel: {
-    fontSize: 10.5,
+    fontSize: fs(10.5),
     fontWeight: "700",
     letterSpacing: 0.6,
     color: COLORS.textOnDarkDim,
   },
-  hdrOutValue: { fontSize: 20, fontWeight: "800", marginTop: 1 },
+  hdrOutValue: { fontSize: fs(20), fontWeight: "800", marginTop: 1 },
   filterBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2161,7 +2163,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.3)",
   },
-  filterBtnText: { fontSize: 13, fontWeight: "700", color: COLORS.white },
+  filterBtnText: { fontSize: fs(13), fontWeight: "700", color: COLORS.white },
 
   // ── Toolbar ──
   toolbar: {
@@ -2174,8 +2176,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
   },
-  toolbarTitle: { fontSize: 19, fontWeight: "800", color: COLORS.textPrimary },
-  toolbarMeta: { fontSize: 13.5, color: COLORS.textMuted },
+  toolbarTitle: { fontSize: fs(19), fontWeight: "800", color: COLORS.textPrimary },
+  toolbarMeta: { fontSize: fs(13.5), color: COLORS.textMuted },
 
   // ── Table ──
   body: { flex: 1, backgroundColor: COLORS.white },
@@ -2189,7 +2191,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.divider,
   },
   th: {
-    fontSize: 12,
+    fontSize: fs(12),
     fontWeight: "700",
     color: COLORS.textMuted,
     textTransform: "uppercase",
@@ -2211,7 +2213,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: 14,
   },
-  td: { fontSize: 15, color: COLORS.textSecondary },
+  td: { fontSize: fs(15), color: COLORS.textSecondary },
 invoiceAmount: {
   fontWeight: "800",
   color: "#000000",
@@ -2221,7 +2223,7 @@ receivedAmount: {
   fontWeight: "800",
   color: "#16A34A",
 },
-  tdSub: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
+  tdSub: { fontSize: fs(13), color: COLORS.textMuted, marginTop: 2 },
   refLine: { flexDirection: "row", alignItems: "center" },
 
   // Expanded items
@@ -2243,7 +2245,7 @@ receivedAmount: {
     borderBottomColor: COLORS.divider,
   },
   subHeadText: {
-    fontSize: 11.5,
+    fontSize: fs(11.5),
     fontWeight: "700",
     color: COLORS.textMuted,
     textTransform: "uppercase",
@@ -2257,8 +2259,8 @@ receivedAmount: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.divider,
   },
-  subText: { fontSize: 14.5, fontWeight: "600", color: COLORS.textPrimary },
-  subMuted: { fontSize: 14.5, color: COLORS.textSecondary },
+  subText: { fontSize: fs(14.5), fontWeight: "600", color: COLORS.textPrimary },
+  subMuted: { fontSize: fs(14.5), color: COLORS.textSecondary },
   sName: { flex: 3, paddingRight: 8 },
   sBag: { flex: 1 },
   sQty: { flex: 1 },
@@ -2296,7 +2298,7 @@ receivedAmount: {
     alignItems: "center",
     marginBottom: 10,
   },
-  panelTitle: { fontSize: 15.5, fontWeight: "800", color: COLORS.textPrimary },
+  panelTitle: { fontSize: fs(15.5), fontWeight: "800", color: COLORS.textPrimary },
   panelDateRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2310,7 +2312,7 @@ receivedAmount: {
     marginBottom: 10,
   },
   panelDateLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  panelDateText: { fontSize: 14.5, fontWeight: "700", color: COLORS.textPrimary },
+  panelDateText: { fontSize: fs(14.5), fontWeight: "700", color: COLORS.textPrimary },
   panelDateBtns: { flexDirection: "row", alignItems: "center" },
   panelChangeBtn: {
     paddingHorizontal: 12,
@@ -2318,9 +2320,9 @@ receivedAmount: {
     borderRadius: 8,
     backgroundColor: COLORS.primarySoft || "#EEF2FF",
   },
-  panelChangeBtnText: { fontSize: 12.5, fontWeight: "700", color: COLORS.primary },
+  panelChangeBtnText: { fontSize: fs(12.5), fontWeight: "700", color: COLORS.primary },
   panelClearBtn: { paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
-  panelClearBtnText: { fontSize: 12.5, fontWeight: "700", color: COLORS.textSecondary },
+  panelClearBtnText: { fontSize: fs(12.5), fontWeight: "700", color: COLORS.textSecondary },
   panelActionRow: { flexDirection: "row" },
   panelPrintBtn: {
     flexDirection: "row",
@@ -2332,7 +2334,7 @@ receivedAmount: {
     borderWidth: 1,
     borderColor: COLORS.primary,
   },
-  panelPrintBtnText: { fontSize: 13.5, fontWeight: "700", color: COLORS.primary },
+  panelPrintBtnText: { fontSize: fs(13.5), fontWeight: "700", color: COLORS.primary },
   panelBody: {
     flex: 1,
     marginTop: 12,
@@ -2341,7 +2343,7 @@ receivedAmount: {
     borderTopColor: COLORS.divider,
   },
   panelEmpty: {
-    fontSize: 14,
+    fontSize: fs(14),
     color: COLORS.textMuted,
     textAlign: "center",
     paddingVertical: 16,
@@ -2352,14 +2354,14 @@ receivedAmount: {
     borderBottomColor: COLORS.divider,
     gap: 3,
   },
-  panelItemName: { fontSize: 13.5, fontWeight: "700", color: COLORS.textPrimary },
+  panelItemName: { fontSize: fs(13.5), fontWeight: "700", color: COLORS.textPrimary },
   panelItemBottom: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  panelItemMeta: { flex: 1, paddingRight: 8, fontSize: 12.5, color: COLORS.textMuted },
-  panelItemAmount: { fontSize: 13.5, fontWeight: "800", color: COLORS.textPrimary },
+  panelItemMeta: { flex: 1, paddingRight: 8, fontSize: fs(12.5), color: COLORS.textMuted },
+  panelItemAmount: { fontSize: fs(13.5), fontWeight: "800", color: COLORS.textPrimary },
   panelTotals: {
     marginTop: 10,
     paddingTop: 10,
@@ -2369,12 +2371,12 @@ receivedAmount: {
   },
   panelTotalsRow: { flexDirection: "row", justifyContent: "space-between" },
   panelTotalsLabel: {
-    fontSize: 12,
+    fontSize: fs(12),
     fontWeight: "700",
     color: COLORS.textMuted,
     letterSpacing: 0.4,
   },
-  panelTotalsValue: { fontSize: 14.5, fontWeight: "800", color: COLORS.textPrimary },
+  panelTotalsValue: { fontSize: fs(14.5), fontWeight: "800", color: COLORS.textPrimary },
 
   // ── Calendar modal ──
   overlay: {
@@ -2396,7 +2398,7 @@ receivedAmount: {
   center: { alignItems: "center", justifyContent: "center", paddingVertical: 50 },
   stateText: {
     marginTop: 10,
-    fontSize: 15,
+    fontSize: fs(15),
     color: COLORS.textMuted,
     textAlign: "center",
   },
@@ -2410,7 +2412,7 @@ receivedAmount: {
     borderWidth: 1,
     borderColor: "#FCA5A5",
   },
-  inactiveBadgeText: { fontSize: 10.5, fontWeight: "800", color: "#FCA5A5", letterSpacing: 0.5 },
+  inactiveBadgeText: { fontSize: fs(10.5), fontWeight: "800", color: "#FCA5A5", letterSpacing: 0.5 },
   editBtn: {
     marginLeft: 12,
     width: 32,
@@ -2438,7 +2440,7 @@ exportLedgerBtn: {
 
 exportLedgerBtnText: {
   color: COLORS.white,
-  fontSize: 13,
+  fontSize: fs(13),
   fontWeight: "700",
 },
 
@@ -2460,13 +2462,13 @@ pdfFilterHeader: {
 },
 
 pdfFilterTitle: {
-  fontSize: 19,
+  fontSize: fs(19),
   fontWeight: "800",
   color: COLORS.textPrimary,
 },
 
 pdfFilterSubtitle: {
-  fontSize: 13,
+  fontSize: fs(13),
   color: COLORS.textMuted,
   marginTop: 4,
 },
@@ -2490,7 +2492,7 @@ pdfFilterOptionActive: {
 
 pdfFilterOptionText: {
   flex: 1,
-  fontSize: 14.5,
+  fontSize: fs(14.5),
   fontWeight: "600",
   color: COLORS.textPrimary,
 },
@@ -2504,7 +2506,7 @@ pdfCustomDates: {
 },
 
 pdfCustomText: {
-  fontSize: 13,
+  fontSize: fs(13),
   fontWeight: "600",
   color: COLORS.textSecondary,
 },
@@ -2541,12 +2543,12 @@ pdfGenerateBtn: {
 
 pdfGenerateText: {
   color: "#FFFFFF",
-  fontSize: 13.5,
+  fontSize: fs(13.5),
   fontWeight: "800",
 },
 
 pdfCalendarTitle: {
-  fontSize: 16,
+  fontSize: fs(16),
   fontWeight: "800",
   color: COLORS.textPrimary,
   textAlign: "center",

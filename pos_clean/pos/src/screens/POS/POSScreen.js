@@ -2933,22 +2933,21 @@ setEditingCategory(null);
 }}
 />
 
-      <ManageCartItemModal
-        visible={!!managedItem}
-        item={managedItem}
-        onClose={handleCloseManageItem}
-    
-onApply={(updates) => {
-  if (managedItem) {
-    handleUpdateCartItem(
-      managedItem._id || managedItem.id,
-      updates
-    );
-  }
-  handleCloseManageItem();
-}}
-
-      />
+<ManageCartItemModal
+  visible={!!managedItem}
+  item={managedItem}
+  isCalculatorMode={isCalculatorMode}
+  onClose={handleCloseManageItem}
+  onApply={(updates) => {
+    if (managedItem) {
+      handleUpdateCartItem(
+        managedItem._id || managedItem.id,
+        updates
+      );
+    }
+    handleCloseManageItem();
+  }}
+/>
 
 <UnitPickerModal
   visible={!!pickerProduct}

@@ -39,15 +39,35 @@ public class ReceiptFormatter {
         String customerName = getStr(receipt, "customerName");
         String invoiceDate = getStr(receipt, "invoiceDate");
         android.util.Log.d("RECEIPT_TIME", "RAW invoiceDate = " + invoiceDate);
-        String paymentMode = getStr(receipt, "paymentMode");
-        boolean isGSTUser = receipt.hasKey("isGSTUser") && receipt.getBoolean("isGSTUser");
+      double grandTotal = getDouble(receipt, "grandTotal");
 
-        double subtotal = getDouble(receipt, "subtotal");
-        double totalDiscount = getDouble(receipt, "totalDiscount");
-        double totalTax = getDouble(receipt, "totalTax");
-        double grandTotal = getDouble(receipt, "grandTotal");
-        double amountReceived = getDouble(receipt, "amountReceived");
-        double change = amountReceived - grandTotal;
+if (grandTotal == 0) {
+    grandTotal = getDouble(receipt, "invoiceAmount");
+}
+
+if (grandTotal == 0) {
+    grandTotal = getDouble(receipt, "finalPaymentAmount");
+}
+
+double amountReceived = getDouble(receipt, "amountReceived");
+
+// Outstanding calculations
+double invoiceAmount = grandTotal;
+
+double previousOutstanding =
+        getDouble(receipt, "previousOutstanding");
+
+if (previousOutstanding == 0) {
+    previousOutstanding =
+            getDouble(receipt, "previous_outstanding");
+}
+
+double totalAmount = invoiceAmount + previousOutstanding;
+
+double totalPaid = amountReceived;
+
+double remainingOutstanding =
+        Math.max(0, totalAmount - totalPaid);
 
         ReadableArray items = receipt.hasKey("items") ? receipt.getArray("items") : null;
 
@@ -93,18 +113,11 @@ if (items != null) {
     }
 }
 
-amtLen = Math.max(amtLen, fmt(subtotal).length());
-amtLen = Math.max(amtLen, fmt(grandTotal).length());
-amtLen = Math.max(amtLen, fmt(amountReceived).length());
-
-if (totalDiscount > 0)
-    amtLen = Math.max(amtLen, fmt(totalDiscount).length() + 1);
-
-if (isGSTUser && totalTax > 0)
-    amtLen = Math.max(amtLen, fmt(totalTax).length());
-
-if (change > 0)
-    amtLen = Math.max(amtLen, fmt(change).length());
+amtLen = Math.max(amtLen, ("₹" + fmt(invoiceAmount)).length());
+amtLen = Math.max(amtLen, ("₹" + fmt(previousOutstanding)).length());
+amtLen = Math.max(amtLen, ("₹" + fmt(totalAmount)).length());
+amtLen = Math.max(amtLen, ("₹" + fmt(totalPaid)).length());
+amtLen = Math.max(amtLen, ("₹" + fmt(remainingOutstanding)).length());
 
 int qtyWeight = qtyLen + 1;
 int rateWeight = rateLen + 1;
@@ -268,33 +281,48 @@ if (items != null) {
 
         printDivider(printer, tableCols);
 
-        // ---------- Totals: label spans ITEM+QTY+RATE, value under AMOUNT ----------
-        printer.printColumnsString(
-                new String[]{"Subtotal", fmt(subtotal)}, totalsCols, totalsAlign, null);
-        if (totalDiscount > 0) {
-            printer.printColumnsString(
-                    new String[]{"Discount", "-" + fmt(totalDiscount)}, totalsCols, totalsAlign, null);
-        }
-        if (isGSTUser && totalTax > 0) {
-            printer.printColumnsString(
-                    new String[]{"Tax", fmt(totalTax)}, totalsCols, totalsAlign, null);
-        }
+// ---------- Invoice Amount & Previous Outstanding ----------
 
-        printer.setFontSize(TOTAL_FONT, null);
-        printer.printColumnsString(
-                new String[]{"TOTAL", fmt(grandTotal)}, totalsCols, totalsAlign, null);
-        printer.setFontSize(BASE_FONT, null); // reset immediately after TOTAL
+printer.printColumnsString(
+        new String[]{"Invoice Amount", "₹" + fmt(invoiceAmount)},
+        totalsCols, totalsAlign, null
+);
 
-        printDivider(printer, tableCols);
+printer.printColumnsString(
+        new String[]{"Previous Outstanding", "₹" + fmt(previousOutstanding)},
+        totalsCols, totalsAlign, null
+);
 
-        // ---------- Payment: same totals grid ----------
-        printer.printColumnsString(
-                new String[]{"Paid (" + paymentMode + ")", fmt(amountReceived)}, totalsCols, totalsAlign, null);
-        if (change > 0) {
-            printer.printColumnsString(
-                    new String[]{"Change", fmt(change)}, totalsCols, totalsAlign, null);
-        }
-        printDivider(printer, tableCols);
+printDivider(printer, tableCols);
+
+
+// ---------- Total Amount & Total Paid ----------
+
+printer.printColumnsString(
+        new String[]{"Total Amount", "₹" + fmt(totalAmount)},
+        totalsCols, totalsAlign, null
+);
+
+printer.printColumnsString(
+        new String[]{"Total Paid", "₹" + fmt(totalPaid)},
+        totalsCols, totalsAlign, null
+);
+
+printDivider(printer, tableCols);
+
+
+// ---------- Remaining Outstanding ----------
+
+printer.setAlignment(1, null);
+
+printer.printText(
+        "Remaining Outstanding: ₹" + fmt(remainingOutstanding) + "\n",
+        null
+);
+
+printer.setAlignment(0, null);
+
+printDivider(printer, tableCols);
 
         // ---------- Footer ----------
         printer.setAlignment(1, null); // center
